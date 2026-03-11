@@ -6,6 +6,32 @@ class SRK_SMTP_Settings {
 
 	private string $option_key = 'srk_smtp_options';
 
+	private const CIPHER = 'aes-256-cbc';
+
+	public static function encrypt_password( string $plain ): string {
+		if ( '' === $plain || ! function_exists( 'openssl_encrypt' ) ) {
+			return $plain;
+		}
+		$key = hash( 'sha256', AUTH_KEY, true );
+		$iv  = openssl_random_pseudo_bytes( openssl_cipher_iv_length( self::CIPHER ) );
+		$enc = openssl_encrypt( $plain, self::CIPHER, $key, 0, $iv );
+		return 'enc:' . base64_encode( $iv . '::' . $enc );
+	}
+
+	public static function decrypt_password( string $stored ): string {
+		if ( ! str_starts_with( $stored, 'enc:' ) || ! function_exists( 'openssl_decrypt' ) ) {
+			return $stored;
+		}
+		$data = base64_decode( substr( $stored, 4 ) );
+		if ( false === $data || ! str_contains( $data, '::' ) ) {
+			return $stored;
+		}
+		[ $iv, $enc ] = explode( '::', $data, 2 );
+		$key   = hash( 'sha256', AUTH_KEY, true );
+		$plain = openssl_decrypt( $enc, self::CIPHER, $key, 0, $iv );
+		return false !== $plain ? $plain : $stored;
+	}
+
 	public function __construct() {
 		add_action( 'admin_menu', [ $this, 'add_menu' ] );
 		add_action( 'admin_init', [ $this, 'register_settings' ] );
@@ -36,7 +62,9 @@ class SRK_SMTP_Settings {
 			'encryption' => in_array( $input['encryption'] ?? '', [ 'tls', 'ssl', '' ], true )
 				? $input['encryption'] : 'tls',
 			'username'   => sanitize_text_field( $input['username'] ?? '' ),
-			'password'   => ! empty( $input['password'] ) ? $input['password'] : ( $old['password'] ?? '' ),
+			'password'   => ! empty( $input['password'] )
+				? self::encrypt_password( $input['password'] )
+				: ( $old['password'] ?? '' ),
 			'from_email' => sanitize_email( $input['from_email'] ?? '' ),
 			'from_name'       => sanitize_text_field( $input['from_name'] ?? '' ),
 			'allow_self_signed' => ! empty( $input['allow_self_signed'] ),

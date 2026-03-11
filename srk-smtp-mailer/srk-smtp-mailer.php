@@ -41,7 +41,7 @@ add_action( 'phpmailer_init', function ( $phpmailer ) {
 	$phpmailer->SMTPSecure = $opts['encryption'] ?? 'tls';
 	$phpmailer->SMTPAuth   = true;
 	$phpmailer->Username   = $opts['username'] ?? '';
-	$phpmailer->Password   = $opts['password'] ?? '';
+	$phpmailer->Password   = SRK_SMTP_Settings::decrypt_password( $opts['password'] ?? '' );
 	if ( ! empty( $opts['allow_self_signed'] ) ) {
 		$phpmailer->SMTPOptions = [
 			'ssl' => [
@@ -80,7 +80,7 @@ add_action( 'wp_ajax_srk_smtp_test', function () {
 	$port       = (int) ( $opts['port'] ?? 587 );
 	$encryption = $opts['encryption'] ?? 'tls';
 	$username   = $opts['username'];
-	$password   = $opts['password'];
+	$password   = SRK_SMTP_Settings::decrypt_password( $opts['password'] );
 
 	// Step 1: Basic DNS / connectivity check.
 	$ip = gethostbyname( $host );

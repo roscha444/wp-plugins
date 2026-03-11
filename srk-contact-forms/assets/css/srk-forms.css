@@ -82,9 +82,10 @@
 }
 
 .srk-cf-checkbox-label {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.75rem;
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: flex-start !important;
+  gap: 0 !important;
   font-size: 0.8rem;
   color: #475569;
   line-height: 1.5;
@@ -98,10 +99,15 @@
   min-width: 18px;
   min-height: 18px;
   margin: 0 !important;
-  margin-top: 0.15em !important;
+  margin-top: 0.1em !important;
+  margin-right: 0.75rem !important;
   padding: 0 !important;
   accent-color: #22c55e;
   cursor: pointer;
+}
+
+.srk-cf-checkbox-label > span {
+  flex: 1;
 }
 
 .srk-cf-checkbox-label .srk-cf-required {

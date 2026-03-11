@@ -97,8 +97,8 @@ class SRK_SMTP_Settings {
 			<h2>Verbindungstest</h2>
 			<p>
 				<button type="button" id="srk-smtp-test-btn" class="button button-secondary">Verbindung testen</button>
-				<span id="srk-smtp-test-result" style="margin-left: 10px;"></span>
 			</p>
+			<pre id="srk-smtp-test-result" style="margin-top:10px;padding:12px 16px;border-radius:6px;font-size:13px;line-height:1.6;display:none;max-width:700px;white-space:pre-wrap;word-break:break-word;"></pre>
 
 			<hr>
 			<h2>E-Mail-Log</h2>
@@ -110,8 +110,11 @@ class SRK_SMTP_Settings {
 			var btn = this;
 			var result = document.getElementById('srk-smtp-test-result');
 			btn.disabled = true;
+			result.style.display = 'block';
 			result.textContent = 'Teste Verbindung…';
+			result.style.background = '#f6f7f7';
 			result.style.color = '#666';
+			result.style.border = '1px solid #ddd';
 
 			fetch(ajaxurl, {
 				method: 'POST',
@@ -121,12 +124,22 @@ class SRK_SMTP_Settings {
 			.then(function(r) { return r.json(); })
 			.then(function(res) {
 				result.textContent = res.data;
-				result.style.color = res.success ? '#16a34a' : '#dc2626';
+				if (res.success) {
+					result.style.background = '#ecfdf5';
+					result.style.color = '#166534';
+					result.style.border = '1px solid #bbf7d0';
+				} else {
+					result.style.background = '#fef2f2';
+					result.style.color = '#991b1b';
+					result.style.border = '1px solid #fecaca';
+				}
 				btn.disabled = false;
 			})
 			.catch(function() {
 				result.textContent = 'Fehler beim Testen.';
-				result.style.color = '#dc2626';
+				result.style.background = '#fef2f2';
+				result.style.color = '#991b1b';
+				result.style.border = '1px solid #fecaca';
 				btn.disabled = false;
 			});
 		});

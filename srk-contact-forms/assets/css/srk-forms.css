@@ -1,7 +1,7 @@
 .srk-cf-wrap {
   width: 100%;
   max-width: 640px;
-  margin: 0 auto;
+  margin: 2rem auto 0;
 }
 
 .srk-cf-form {
@@ -9,6 +9,7 @@
   border-radius: 1rem;
   padding: 2rem;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
+  text-align: left;
 }
 
 .srk-cf-grid {
@@ -77,7 +78,7 @@
 }
 
 .srk-cf-consent {
-  margin-top: 0.25rem;
+  margin-top: 0.75rem;
 }
 
 .srk-cf-checkbox-label {
@@ -92,11 +93,18 @@
 
 .srk-cf-checkbox-label input[type='checkbox'] {
   flex-shrink: 0;
-  width: 18px;
-  height: 18px;
-  margin-top: 2px;
+  width: 18px !important;
+  height: 18px !important;
+  min-width: 18px;
+  min-height: 18px;
+  margin: 0 !important;
+  padding: 0 !important;
   accent-color: #22c55e;
   cursor: pointer;
+}
+
+.srk-cf-checkbox-label .srk-cf-required {
+  color: #dc2626;
 }
 
 .srk-cf-checkbox-label a {
@@ -149,11 +157,12 @@
 .srk-cf-success h3 {
   font-size: 1.5rem;
   font-weight: 700;
-  color: #0f172a;
+  color: inherit;
 }
 
 .srk-cf-success p {
-  color: #475569;
+  color: inherit;
+  opacity: 0.7;
   font-size: 1rem;
 }
 

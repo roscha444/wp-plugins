@@ -47,7 +47,7 @@ class SRK_Form_Registry {
 		return [
 			'contact' => [
 				'title'     => 'Kontaktformular',
-				'recipient' => get_option( 'admin_email' ),
+				'recipient' => 'info@srk-hosting.de',
 				'subject'   => 'Kontaktanfrage über die Website',
 				'fields'    => [
 					[
@@ -104,7 +104,7 @@ class SRK_Form_Registry {
 
 			'quote' => [
 				'title'     => 'Angebotsanfrage',
-				'recipient' => get_option( 'admin_email' ),
+				'recipient' => 'info@srk-hosting.de',
 				'subject'   => 'Hosting-Anfrage über die Website',
 				'fields'    => [
 					[

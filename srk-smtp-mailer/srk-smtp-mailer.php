@@ -42,13 +42,15 @@ add_action( 'phpmailer_init', function ( $phpmailer ) {
 	$phpmailer->SMTPAuth   = true;
 	$phpmailer->Username   = $opts['username'] ?? '';
 	$phpmailer->Password   = $opts['password'] ?? '';
-	$phpmailer->SMTPOptions = [
-		'ssl' => [
-			'verify_peer'       => false,
-			'verify_peer_name'  => false,
-			'allow_self_signed' => true,
-		],
-	];
+	if ( ! empty( $opts['allow_self_signed'] ) ) {
+		$phpmailer->SMTPOptions = [
+			'ssl' => [
+				'verify_peer'       => false,
+				'verify_peer_name'  => false,
+				'allow_self_signed' => true,
+			],
+		];
+	}
 
 	if ( ! empty( $opts['from_email'] ) ) {
 		$phpmailer->From     = $opts['from_email'];
@@ -128,14 +130,15 @@ add_action( 'wp_ajax_srk_smtp_test', function () {
 		$mailer->Password   = $password;
 		$mailer->Timeout    = 15;
 
-		// Allow self-signed certificates (common for mail servers).
-		$mailer->SMTPOptions = [
-			'ssl' => [
-				'verify_peer'       => false,
-				'verify_peer_name'  => false,
-				'allow_self_signed' => true,
-			],
-		];
+		if ( ! empty( $opts['allow_self_signed'] ) ) {
+			$mailer->SMTPOptions = [
+				'ssl' => [
+					'verify_peer'       => false,
+					'verify_peer_name'  => false,
+					'allow_self_signed' => true,
+				],
+			];
+		}
 
 		$mailer->smtpConnect();
 		$mailer->smtpClose();
@@ -186,5 +189,43 @@ add_action( 'wp_ajax_srk_smtp_test', function () {
 		}
 
 		wp_send_json_error( $error );
+	}
+} );
+
+// AJAX: Send test email.
+add_action( 'wp_ajax_srk_smtp_send_test', function () {
+	if ( ! current_user_can( 'manage_options' ) ) {
+		wp_send_json_error( 'Keine Berechtigung.' );
+	}
+
+	check_ajax_referer( 'srk_smtp_test', 'nonce' );
+
+	$opts = get_option( 'srk_smtp_options', [] );
+
+	if ( empty( $opts['host'] ) || empty( $opts['username'] ) || empty( $opts['password'] ) ) {
+		wp_send_json_error( 'SMTP-Einstellungen unvollständig.' );
+	}
+
+	$to      = ! empty( $opts['from_email'] ) ? $opts['from_email'] : get_option( 'admin_email' );
+	$subject = 'SRK SMTP Mailer – Test-E-Mail';
+	$body    = "Dies ist eine automatische Test-E-Mail vom SRK SMTP Mailer Plugin.\n\n"
+		. "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt "
+		. "ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation "
+		. "ullamco laboris nisi ut aliquip ex ea commodo consequat.\n\n"
+		. "Wenn Sie diese E-Mail erhalten, funktioniert der SMTP-Versand korrekt.\n\n"
+		. "Gesendet: " . wp_date( 'd.m.Y H:i:s' ) . "\n"
+		. "Server: " . ( $opts['host'] ?? '' ) . ':' . ( $opts['port'] ?? 587 );
+
+	$sent = wp_mail( $to, $subject, $body );
+
+	if ( $sent ) {
+		wp_send_json_success( "Test-E-Mail erfolgreich gesendet an: {$to}" );
+	} else {
+		global $phpmailer;
+		$error_msg = "Test-E-Mail konnte nicht gesendet werden.";
+		if ( isset( $phpmailer ) && $phpmailer->ErrorInfo ) {
+			$error_msg .= "\n\nFehler: " . $phpmailer->ErrorInfo;
+		}
+		wp_send_json_error( $error_msg );
 	}
 } );

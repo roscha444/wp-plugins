@@ -38,7 +38,8 @@ class SRK_SMTP_Settings {
 			'username'   => sanitize_text_field( $input['username'] ?? '' ),
 			'password'   => ! empty( $input['password'] ) ? $input['password'] : ( $old['password'] ?? '' ),
 			'from_email' => sanitize_email( $input['from_email'] ?? '' ),
-			'from_name'  => sanitize_text_field( $input['from_name'] ?? '' ),
+			'from_name'       => sanitize_text_field( $input['from_name'] ?? '' ),
+			'allow_self_signed' => ! empty( $input['allow_self_signed'] ),
 		];
 	}
 
@@ -88,6 +89,16 @@ class SRK_SMTP_Settings {
 						<th><label for="srk_from_name">Absender Name</label></th>
 						<td><input type="text" id="srk_from_name" name="<?php echo esc_attr( $this->option_key ); ?>[from_name]" value="<?php echo esc_attr( $opts['from_name'] ?? '' ); ?>" class="regular-text" placeholder="<?php echo esc_attr( get_bloginfo( 'name' ) ); ?>"></td>
 					</tr>
+					<tr>
+						<th>Zertifikate</th>
+						<td>
+							<label>
+								<input type="checkbox" name="<?php echo esc_attr( $this->option_key ); ?>[allow_self_signed]" value="1" <?php checked( ! empty( $opts['allow_self_signed'] ) ); ?>>
+								Self-signed Zertifikate erlauben
+							</label>
+							<p class="description">Nur aktivieren, wenn Ihr Mailserver ein selbstsigniertes SSL-Zertifikat verwendet. Deaktiviert die Zertifikatsvalidierung.</p>
+						</td>
+					</tr>
 				</table>
 
 				<?php submit_button( 'Einstellungen speichern' ); ?>
@@ -97,6 +108,7 @@ class SRK_SMTP_Settings {
 			<h2>Verbindungstest</h2>
 			<p>
 				<button type="button" id="srk-smtp-test-btn" class="button button-secondary">Verbindung testen</button>
+				<button type="button" id="srk-smtp-send-test-btn" class="button button-secondary" style="margin-left:8px;">Test-E-Mail senden</button>
 			</p>
 			<pre id="srk-smtp-test-result" style="margin-top:10px;padding:12px 16px;border-radius:6px;font-size:13px;line-height:1.6;display:none;max-width:700px;white-space:pre-wrap;word-break:break-word;"></pre>
 
@@ -106,15 +118,23 @@ class SRK_SMTP_Settings {
 		</div>
 
 		<script>
+		function srkSmtpShowResult(result, text, type) {
+			result.style.display = 'block';
+			result.textContent = text;
+			if (type === 'loading') {
+				result.style.background = '#f6f7f7'; result.style.color = '#666'; result.style.border = '1px solid #ddd';
+			} else if (type === 'success') {
+				result.style.background = '#ecfdf5'; result.style.color = '#166534'; result.style.border = '1px solid #bbf7d0';
+			} else {
+				result.style.background = '#fef2f2'; result.style.color = '#991b1b'; result.style.border = '1px solid #fecaca';
+			}
+		}
+
 		document.getElementById('srk-smtp-test-btn').addEventListener('click', function() {
 			var btn = this;
 			var result = document.getElementById('srk-smtp-test-result');
 			btn.disabled = true;
-			result.style.display = 'block';
-			result.textContent = 'Teste Verbindung…';
-			result.style.background = '#f6f7f7';
-			result.style.color = '#666';
-			result.style.border = '1px solid #ddd';
+			srkSmtpShowResult(result, 'Teste Verbindung…', 'loading');
 
 			fetch(ajaxurl, {
 				method: 'POST',
@@ -123,23 +143,33 @@ class SRK_SMTP_Settings {
 			})
 			.then(function(r) { return r.json(); })
 			.then(function(res) {
-				result.textContent = res.data;
-				if (res.success) {
-					result.style.background = '#ecfdf5';
-					result.style.color = '#166534';
-					result.style.border = '1px solid #bbf7d0';
-				} else {
-					result.style.background = '#fef2f2';
-					result.style.color = '#991b1b';
-					result.style.border = '1px solid #fecaca';
-				}
+				srkSmtpShowResult(result, res.data, res.success ? 'success' : 'error');
 				btn.disabled = false;
 			})
 			.catch(function() {
-				result.textContent = 'Fehler beim Testen.';
-				result.style.background = '#fef2f2';
-				result.style.color = '#991b1b';
-				result.style.border = '1px solid #fecaca';
+				srkSmtpShowResult(result, 'Fehler beim Testen.', 'error');
+				btn.disabled = false;
+			});
+		});
+
+		document.getElementById('srk-smtp-send-test-btn').addEventListener('click', function() {
+			var btn = this;
+			var result = document.getElementById('srk-smtp-test-result');
+			btn.disabled = true;
+			srkSmtpShowResult(result, 'Sende Test-E-Mail…', 'loading');
+
+			fetch(ajaxurl, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+				body: 'action=srk_smtp_send_test&nonce=<?php echo esc_js( $test_nonce ); ?>'
+			})
+			.then(function(r) { return r.json(); })
+			.then(function(res) {
+				srkSmtpShowResult(result, res.data, res.success ? 'success' : 'error');
+				btn.disabled = false;
+			})
+			.catch(function() {
+				srkSmtpShowResult(result, 'Fehler beim Senden.', 'error');
 				btn.disabled = false;
 			});
 		});

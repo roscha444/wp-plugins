@@ -68,6 +68,7 @@ class SRK_SMTP_Settings {
 			'from_email' => sanitize_email( $input['from_email'] ?? '' ),
 			'from_name'       => sanitize_text_field( $input['from_name'] ?? '' ),
 			'allow_self_signed' => ! empty( $input['allow_self_signed'] ),
+			'enable_log'        => ! empty( $input['enable_log'] ),
 		];
 	}
 
@@ -127,6 +128,16 @@ class SRK_SMTP_Settings {
 							<p class="description">Nur aktivieren, wenn Ihr Mailserver ein selbstsigniertes SSL-Zertifikat verwendet. Deaktiviert die Zertifikatsvalidierung.</p>
 						</td>
 					</tr>
+					<tr>
+						<th>E-Mail-Log</th>
+						<td>
+							<label>
+								<input type="checkbox" name="<?php echo esc_attr( $this->option_key ); ?>[enable_log]" value="1" <?php checked( $opts['enable_log'] ?? true ); ?>>
+								E-Mail-Log aktivieren
+							</label>
+							<p class="description">Protokolliert alle gesendeten und fehlgeschlagenen E-Mails.</p>
+						</td>
+					</tr>
 				</table>
 
 				<?php submit_button( 'Einstellungen speichern' ); ?>
@@ -148,6 +159,12 @@ class SRK_SMTP_Settings {
 			<hr>
 			<h2>E-Mail-Log</h2>
 			<?php $this->render_log_table(); ?>
+			<?php
+			$log_nonce = wp_create_nonce( 'srk_smtp_clear_log' );
+			?>
+			<p style="margin-top:12px;">
+				<button type="button" id="srk-smtp-clear-log-btn" class="button button-secondary" style="color:#b32d2e;">Log löschen</button>
+			</p>
 		</div>
 
 		<script>
@@ -226,6 +243,24 @@ class SRK_SMTP_Settings {
 		document.getElementById('srk-smtp-test-email').addEventListener('keydown', function(e) {
 			if (e.key === 'Enter') { e.preventDefault(); document.getElementById('srk-smtp-send-confirm-btn').click(); }
 		});
+
+		document.getElementById('srk-smtp-clear-log-btn').addEventListener('click', function() {
+			if (!confirm('Gesamtes E-Mail-Log wirklich löschen?')) return;
+			var btn = this;
+			btn.disabled = true;
+
+			fetch(ajaxurl, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+				body: 'action=srk_smtp_clear_log&nonce=<?php echo esc_js( $log_nonce ); ?>'
+			})
+			.then(function(r) { return r.json(); })
+			.then(function(res) {
+				if (res.success) { location.reload(); }
+				else { alert(res.data); btn.disabled = false; }
+			})
+			.catch(function() { btn.disabled = false; });
+		});
 		</script>
 		<?php
 	}
@@ -249,20 +284,22 @@ class SRK_SMTP_Settings {
 		}
 
 		echo '<table class="widefat striped"><thead><tr>';
-		echo '<th>Datum</th><th>Typ</th><th>Betreff</th><th>Status</th>';
+		echo '<th>Datum</th><th>Typ</th><th>Betreff</th><th>Status</th><th>Fehler</th>';
 		echo '</tr></thead><tbody>';
 
 		foreach ( $logs as $log ) {
 			$status_color = 'sent' === $log->status ? '#16a34a' : '#dc2626';
 			$status_label = 'sent' === $log->status ? 'Gesendet' : 'Fehlgeschlagen';
+			$error_text   = ! empty( $log->error_msg ) ? $log->error_msg : '–';
 
 			printf(
-				'<tr><td>%s</td><td>%s</td><td>%s</td><td style="color:%s;font-weight:600;">%s</td></tr>',
+				'<tr><td>%s</td><td>%s</td><td>%s</td><td style="color:%s;font-weight:600;">%s</td><td style="font-size:12px;max-width:300px;word-break:break-word;">%s</td></tr>',
 				esc_html( wp_date( 'd.m.Y H:i', strtotime( $log->sent_at ) ) ),
 				esc_html( $log->mail_type ),
 				esc_html( $log->subject ),
 				esc_attr( $status_color ),
-				esc_html( $status_label )
+				esc_html( $status_label ),
+				esc_html( $error_text )
 			);
 		}
 

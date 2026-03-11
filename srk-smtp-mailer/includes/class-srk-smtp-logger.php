@@ -79,6 +79,11 @@ class SRK_SMTP_Logger {
 	}
 
 	private static function insert( string $subject, string $status, ?string $error_msg = null ): void {
+		$opts = get_option( 'srk_smtp_options', [] );
+		if ( isset( $opts['enable_log'] ) && ! $opts['enable_log'] ) {
+			return;
+		}
+
 		global $wpdb;
 
 		$wpdb->insert(

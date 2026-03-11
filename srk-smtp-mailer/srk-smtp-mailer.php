@@ -239,3 +239,18 @@ add_action( 'wp_ajax_srk_smtp_send_test', function () {
 		wp_send_json_error( $error_msg );
 	}
 } );
+
+// AJAX: Clear email log.
+add_action( 'wp_ajax_srk_smtp_clear_log', function () {
+	if ( ! current_user_can( 'manage_options' ) ) {
+		wp_send_json_error( 'Keine Berechtigung.' );
+	}
+
+	check_ajax_referer( 'srk_smtp_clear_log', 'nonce' );
+
+	global $wpdb;
+	$table = $wpdb->prefix . 'srk_smtp_log';
+	$wpdb->query( "TRUNCATE TABLE {$table}" );
+
+	wp_send_json_success( 'Log gelöscht.' );
+} );

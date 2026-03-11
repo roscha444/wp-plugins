@@ -19,9 +19,21 @@ define( 'SRK_CF_URL', plugin_dir_url( __FILE__ ) );
 require_once SRK_CF_PATH . 'includes/class-srk-form-builder.php';
 require_once SRK_CF_PATH . 'includes/class-srk-form-handler.php';
 require_once SRK_CF_PATH . 'includes/class-srk-form-registry.php';
+require_once SRK_CF_PATH . 'includes/class-srk-form-admin.php';
+
+// Seed default forms on first activation.
+register_activation_hook( __FILE__, function () {
+	if ( false === get_option( 'srk_cf_forms' ) ) {
+		update_option( 'srk_cf_forms', SRK_Form_Registry::default_forms() );
+	}
+} );
 
 add_action( 'plugins_loaded', function () {
 	SRK_Form_Handler::init();
+
+	if ( is_admin() ) {
+		new SRK_Form_Admin();
+	}
 } );
 
 // Enqueue frontend assets only when shortcode is used.

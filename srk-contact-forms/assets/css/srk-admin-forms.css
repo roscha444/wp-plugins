@@ -1,0 +1,30 @@
+.srk-field-builder {
+  margin-top: 0.5rem;
+}
+
+.srk-field-builder th,
+.srk-field-builder td {
+  padding: 6px 8px;
+  vertical-align: middle;
+}
+
+.srk-fb-drag {
+  width: 30px;
+  text-align: center;
+}
+
+.srk-field-row:hover {
+  background: #f6f7f7;
+}
+
+.srk-sortable-placeholder {
+  height: 40px;
+  background: #e8f5e9;
+  border: 2px dashed #22c55e;
+}
+
+.srk-remove-field {
+  color: #b32d2e !important;
+  font-size: 18px;
+  line-height: 1;
+}

@@ -5,12 +5,14 @@ defined( 'ABSPATH' ) || exit;
 /**
  * Registry for form configurations.
  *
- * Forms can be registered by this plugin or by third-party plugins
- * using the `srk_contact_forms` filter.
+ * Forms are stored in wp_options and can be managed via the admin UI.
+ * The `srk_contact_forms` filter still allows code-based overrides.
  */
 class SRK_Form_Registry {
 
 	private static ?array $forms = null;
+
+	private const OPTION_KEY = 'srk_cf_forms';
 
 	/**
 	 * Get a form configuration by ID.
@@ -28,22 +30,52 @@ class SRK_Form_Registry {
 			return self::$forms;
 		}
 
-		$defaults = self::default_forms();
+		$stored = self::stored_forms();
 
 		/**
-		 * Filter to register additional forms or modify existing ones.
+		 * Filter to register additional forms or override existing ones.
 		 *
 		 * @param array $forms Associative array of form_id => config.
 		 */
-		self::$forms = apply_filters( 'srk_contact_forms', $defaults );
+		self::$forms = apply_filters( 'srk_contact_forms', $stored );
 
 		return self::$forms;
 	}
 
 	/**
-	 * Built-in form definitions.
+	 * Save a single form.
 	 */
-	private static function default_forms(): array {
+	public static function save_form( string $id, array $config ): void {
+		$forms         = self::stored_forms();
+		$forms[ $id ]  = $config;
+
+		update_option( self::OPTION_KEY, $forms );
+		self::$forms = null;
+	}
+
+	/**
+	 * Delete a form by ID.
+	 */
+	public static function delete( string $id ): void {
+		$forms = self::stored_forms();
+		unset( $forms[ $id ] );
+
+		update_option( self::OPTION_KEY, $forms );
+		self::$forms = null;
+	}
+
+	/**
+	 * Get forms from the database.
+	 */
+	private static function stored_forms(): array {
+		$forms = get_option( self::OPTION_KEY, [] );
+		return is_array( $forms ) ? $forms : [];
+	}
+
+	/**
+	 * Default forms seeded on first activation.
+	 */
+	public static function default_forms(): array {
 		return [
 			'contact' => [
 				'title'     => 'Kontaktformular',

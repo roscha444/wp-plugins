@@ -42,6 +42,13 @@ add_action( 'phpmailer_init', function ( $phpmailer ) {
 	$phpmailer->SMTPAuth   = true;
 	$phpmailer->Username   = $opts['username'] ?? '';
 	$phpmailer->Password   = $opts['password'] ?? '';
+	$phpmailer->SMTPOptions = [
+		'ssl' => [
+			'verify_peer'       => false,
+			'verify_peer_name'  => false,
+			'allow_self_signed' => true,
+		],
+	];
 
 	if ( ! empty( $opts['from_email'] ) ) {
 		$phpmailer->From     = $opts['from_email'];
@@ -82,29 +89,24 @@ add_action( 'wp_ajax_srk_smtp_test', function () {
 		);
 	}
 
-	// Step 2: Socket-level port check.
+	// Step 2: Socket-level port check (non-blocking, informational only).
+	$socket_ok = false;
+	$socket_info = '';
 	$errno  = 0;
 	$errstr = '';
 	$scheme = 'ssl' === $encryption ? 'ssl://' : '';
 	$conn   = @fsockopen( $scheme . $host, $port, $errno, $errstr, 10 );
 
-	if ( ! $conn ) {
-		$detail  = "Host: {$host}, Port: {$port}, Verschlüsselung: " . ( $encryption ?: 'Keine' ) . "\n";
-		$detail .= "Fehlercode: {$errno}\n";
-		$detail .= "Fehlermeldung: {$errstr}\n\n";
-		$detail .= "Mögliche Ursachen:\n";
-		$detail .= "• Port {$port} ist durch eine Firewall blockiert\n";
-		$detail .= "• Der SMTP-Server ist nicht erreichbar\n";
-		if ( 587 === $port && 'ssl' === $encryption ) {
-			$detail .= "• Port 587 verwendet normalerweise TLS, nicht SSL (versuchen Sie Port 465 für SSL)\n";
+	if ( $conn ) {
+		$socket_ok = true;
+		fclose( $conn );
+	} else {
+		$socket_info  = "Socket-Vortest: Port {$port} nicht direkt erreichbar";
+		if ( $errno ) {
+			$socket_info .= " (Code {$errno}: {$errstr})";
 		}
-		if ( 465 === $port && 'tls' === $encryption ) {
-			$detail .= "• Port 465 verwendet normalerweise SSL, nicht TLS (versuchen Sie Port 587 für TLS)\n";
-		}
-
-		wp_send_json_error( "Verbindung zum Server fehlgeschlagen:\n\n{$detail}" );
+		$socket_info .= "\nDies kann an der lokalen PHP-Konfiguration liegen. PHPMailer-Test wird trotzdem durchgeführt.\n\n";
 	}
-	fclose( $conn );
 
 	// Step 3: SMTP authentication test with debug output.
 	$mailer = new PHPMailer\PHPMailer\PHPMailer( true );
@@ -124,7 +126,16 @@ add_action( 'wp_ajax_srk_smtp_test', function () {
 		$mailer->SMTPAuth   = true;
 		$mailer->Username   = $username;
 		$mailer->Password   = $password;
-		$mailer->Timeout    = 10;
+		$mailer->Timeout    = 15;
+
+		// Allow self-signed certificates (common for mail servers).
+		$mailer->SMTPOptions = [
+			'ssl' => [
+				'verify_peer'       => false,
+				'verify_peer_name'  => false,
+				'allow_self_signed' => true,
+			],
+		];
 
 		$mailer->smtpConnect();
 		$mailer->smtpClose();
@@ -135,10 +146,29 @@ add_action( 'wp_ajax_srk_smtp_test', function () {
 			. "Authentifizierung: OK"
 		);
 	} catch ( \Exception $e ) {
-		$error  = "SMTP-Authentifizierung fehlgeschlagen:\n\n";
+		$error = '';
+		if ( $socket_info ) {
+			$error .= $socket_info;
+		}
+		$error .= "SMTP-Verbindung fehlgeschlagen:\n\n";
 		$error .= "Host: {$host}:{$port} ({$encryption})\n";
 		$error .= "Benutzer: {$username}\n\n";
 		$error .= "Fehler: " . $e->getMessage() . "\n\n";
+
+		// Check for common issues.
+		$msg = $e->getMessage();
+		if ( str_contains( $msg, 'Could not connect' ) ) {
+			$error .= "Mögliche Ursachen:\n";
+			$error .= "• Port {$port} ist blockiert (Firewall oder Hoster)\n";
+			$error .= "• Falsche Port/Verschlüsselung-Kombination (465=SSL, 587=TLS)\n";
+			$error .= "• PHP OpenSSL-Erweiterung fehlt oder ist deaktiviert\n";
+			$error .= "• Lokale Entwicklungsumgebung blockiert ausgehende SMTP-Verbindungen\n";
+		} elseif ( str_contains( $msg, 'authenticate' ) || str_contains( $msg, 'AUTH' ) ) {
+			$error .= "Mögliche Ursachen:\n";
+			$error .= "• Falsches Passwort oder Benutzername\n";
+			$error .= "• Konto ist gesperrt oder deaktiviert\n";
+		}
+		$error .= "\n";
 
 		// Extract useful lines from debug log.
 		$useful_lines = [];

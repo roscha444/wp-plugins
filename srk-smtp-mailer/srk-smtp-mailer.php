@@ -206,9 +206,11 @@ add_action( 'wp_ajax_srk_smtp_send_test', function () {
 		wp_send_json_error( 'SMTP-Einstellungen unvollständig.' );
 	}
 
-	$to      = ! empty( $opts['from_email'] ) ? $opts['from_email'] : get_option( 'admin_email' );
-	$subject = 'SRK SMTP Mailer – Test-E-Mail';
-	$body    = "Dies ist eine automatische Test-E-Mail vom SRK SMTP Mailer Plugin.\n\n"
+	$from_email = ! empty( $opts['from_email'] ) ? $opts['from_email'] : get_option( 'admin_email' );
+	$from_name  = ! empty( $opts['from_name'] ) ? $opts['from_name'] : get_bloginfo( 'name' );
+	$to         = $from_email;
+	$subject    = 'SRK SMTP Mailer – Test-E-Mail';
+	$body       = "Dies ist eine automatische Test-E-Mail vom SRK SMTP Mailer Plugin.\n\n"
 		. "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt "
 		. "ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation "
 		. "ullamco laboris nisi ut aliquip ex ea commodo consequat.\n\n"
@@ -216,7 +218,11 @@ add_action( 'wp_ajax_srk_smtp_send_test', function () {
 		. "Gesendet: " . wp_date( 'd.m.Y H:i:s' ) . "\n"
 		. "Server: " . ( $opts['host'] ?? '' ) . ':' . ( $opts['port'] ?? 587 );
 
-	$sent = wp_mail( $to, $subject, $body );
+	$headers = [
+		'From: ' . $from_name . ' <' . $from_email . '>',
+	];
+
+	$sent = wp_mail( $to, $subject, $body, $headers );
 
 	if ( $sent ) {
 		wp_send_json_success( "Test-E-Mail erfolgreich gesendet an: {$to}" );

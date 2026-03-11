@@ -208,7 +208,11 @@ add_action( 'wp_ajax_srk_smtp_send_test', function () {
 
 	$from_email = ! empty( $opts['from_email'] ) ? $opts['from_email'] : get_option( 'admin_email' );
 	$from_name  = ! empty( $opts['from_name'] ) ? $opts['from_name'] : get_bloginfo( 'name' );
-	$to         = $from_email;
+	$to         = ! empty( $_POST['to'] ) ? sanitize_email( $_POST['to'] ) : $from_email;
+
+	if ( ! is_email( $to ) ) {
+		wp_send_json_error( 'Ungültige Empfänger-Adresse.' );
+	}
 	$subject    = 'SRK SMTP Mailer – Test-E-Mail';
 	$body       = "Dies ist eine automatische Test-E-Mail vom SRK SMTP Mailer Plugin.\n\n"
 		. "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt "

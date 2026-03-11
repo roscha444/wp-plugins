@@ -138,6 +138,11 @@ class SRK_SMTP_Settings {
 				<button type="button" id="srk-smtp-test-btn" class="button button-secondary">Verbindung testen</button>
 				<button type="button" id="srk-smtp-send-test-btn" class="button button-secondary" style="margin-left:8px;">Test-E-Mail senden</button>
 			</p>
+			<div id="srk-smtp-test-email-row" style="display:none;margin-top:8px;">
+				<input type="email" id="srk-smtp-test-email" class="regular-text" placeholder="empfaenger@example.com" style="vertical-align:middle;">
+				<button type="button" id="srk-smtp-send-confirm-btn" class="button button-primary" style="margin-left:6px;vertical-align:middle;">Senden</button>
+				<button type="button" id="srk-smtp-send-cancel-btn" class="button" style="margin-left:4px;vertical-align:middle;">Abbrechen</button>
+			</div>
 			<pre id="srk-smtp-test-result" style="margin-top:10px;padding:12px 16px;border-radius:6px;font-size:13px;line-height:1.6;display:none;max-width:700px;white-space:pre-wrap;word-break:break-word;"></pre>
 
 			<hr>
@@ -181,15 +186,31 @@ class SRK_SMTP_Settings {
 		});
 
 		document.getElementById('srk-smtp-send-test-btn').addEventListener('click', function() {
+			var row = document.getElementById('srk-smtp-test-email-row');
+			var input = document.getElementById('srk-smtp-test-email');
+			row.style.display = 'block';
+			input.focus();
+		});
+
+		document.getElementById('srk-smtp-send-cancel-btn').addEventListener('click', function() {
+			document.getElementById('srk-smtp-test-email-row').style.display = 'none';
+		});
+
+		document.getElementById('srk-smtp-send-confirm-btn').addEventListener('click', function() {
 			var btn = this;
+			var input = document.getElementById('srk-smtp-test-email');
+			var email = input.value.trim();
 			var result = document.getElementById('srk-smtp-test-result');
+
+			if (!email) { input.focus(); return; }
+
 			btn.disabled = true;
-			srkSmtpShowResult(result, 'Sende Test-E-Mail…', 'loading');
+			srkSmtpShowResult(result, 'Sende Test-E-Mail an ' + email + '…', 'loading');
 
 			fetch(ajaxurl, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-				body: 'action=srk_smtp_send_test&nonce=<?php echo esc_js( $test_nonce ); ?>'
+				body: 'action=srk_smtp_send_test&nonce=<?php echo esc_js( $test_nonce ); ?>&to=' + encodeURIComponent(email)
 			})
 			.then(function(r) { return r.json(); })
 			.then(function(res) {
@@ -200,6 +221,10 @@ class SRK_SMTP_Settings {
 				srkSmtpShowResult(result, 'Fehler beim Senden.', 'error');
 				btn.disabled = false;
 			});
+		});
+
+		document.getElementById('srk-smtp-test-email').addEventListener('keydown', function(e) {
+			if (e.key === 'Enter') { e.preventDefault(); document.getElementById('srk-smtp-send-confirm-btn').click(); }
 		});
 		</script>
 		<?php

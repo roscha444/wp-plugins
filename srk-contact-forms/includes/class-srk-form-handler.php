@@ -69,6 +69,12 @@ class SRK_Form_Handler {
 
 		$headers = [ 'Content-Type: text/plain; charset=UTF-8' ];
 
+		// Set From header from SMTP plugin settings or WordPress default.
+		$smtp_opts  = get_option( 'srk_smtp_options', [] );
+		$from_email = ! empty( $smtp_opts['from_email'] ) ? $smtp_opts['from_email'] : get_option( 'admin_email' );
+		$from_name  = ! empty( $smtp_opts['from_name'] ) ? $smtp_opts['from_name'] : get_bloginfo( 'name' );
+		$headers[]  = 'From: ' . $from_name . ' <' . $from_email . '>';
+
 		// Set reply-to if email field exists.
 		$reply_email = $values['email']['value'] ?? '';
 		if ( $reply_email ) {

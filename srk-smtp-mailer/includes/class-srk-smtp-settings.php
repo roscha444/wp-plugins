@@ -71,6 +71,7 @@ class SRK_SMTP_Settings {
 			'enable_log'        => ! empty( $input['enable_log'] ),
 			'rate_limit_hour'   => absint( $input['rate_limit_hour'] ?? 30 ),
 			'rate_limit_day'    => absint( $input['rate_limit_day'] ?? 100 ),
+			'rate_limit_ip'     => absint( $input['rate_limit_ip'] ?? 5 ),
 		];
 	}
 
@@ -143,12 +144,17 @@ class SRK_SMTP_Settings {
 					<tr>
 						<th><label for="srk_rate_limit_hour">Max E-Mails pro Stunde</label></th>
 						<td><input type="number" id="srk_rate_limit_hour" name="<?php echo esc_attr( $this->option_key ); ?>[rate_limit_hour]" value="<?php echo esc_attr( $opts['rate_limit_hour'] ?? 30 ); ?>" class="small-text" min="0">
-						<p class="description">Maximale Anzahl E-Mails pro Stunde. 0 = unbegrenzt. Erfordert aktiviertes E-Mail-Log.</p></td>
+						<p class="description">Maximale Anzahl E-Mails pro Stunde. 0 = unbegrenzt.</p></td>
+					</tr>
+					<tr>
+						<th><label for="srk_rate_limit_ip">Max E-Mails pro IP/Stunde</label></th>
+						<td><input type="number" id="srk_rate_limit_ip" name="<?php echo esc_attr( $this->option_key ); ?>[rate_limit_ip]" value="<?php echo esc_attr( $opts['rate_limit_ip'] ?? 5 ); ?>" class="small-text" min="0">
+						<p class="description">Maximale Anzahl E-Mails pro IP-Adresse pro Stunde. 0 = unbegrenzt. IP wird DSGVO-konform als HMAC-SHA256-Hash gespeichert.</p></td>
 					</tr>
 					<tr>
 						<th><label for="srk_rate_limit_day">Max E-Mails pro Tag</label></th>
 						<td><input type="number" id="srk_rate_limit_day" name="<?php echo esc_attr( $this->option_key ); ?>[rate_limit_day]" value="<?php echo esc_attr( $opts['rate_limit_day'] ?? 100 ); ?>" class="small-text" min="0">
-						<p class="description">Maximale Anzahl E-Mails pro Tag (24h). 0 = unbegrenzt. Erfordert aktiviertes E-Mail-Log.</p></td>
+						<p class="description">Maximale Anzahl E-Mails pro Tag (24h). 0 = unbegrenzt.</p></td>
 					</tr>
 				</table>
 
@@ -169,8 +175,14 @@ class SRK_SMTP_Settings {
 			<pre id="srk-smtp-test-result" style="margin-top:10px;padding:12px 16px;border-radius:6px;font-size:13px;line-height:1.6;display:none;max-width:700px;white-space:pre-wrap;word-break:break-word;"></pre>
 
 			<hr>
-			<h2>Statistik</h2>
+			<h2>Statistik &amp; Rate-Limits</h2>
 			<?php $this->render_stats(); ?>
+			<?php
+			$rate_nonce = wp_create_nonce( 'srk_smtp_clear_rate' );
+			?>
+			<p style="margin-top:12px;">
+				<button type="button" id="srk-smtp-clear-rate-btn" class="button button-secondary" style="color:#b32d2e;">Rate-Limits zurücksetzen</button>
+			</p>
 
 			<hr>
 			<h2>E-Mail-Log</h2>
@@ -260,6 +272,24 @@ class SRK_SMTP_Settings {
 			if (e.key === 'Enter') { e.preventDefault(); document.getElementById('srk-smtp-send-confirm-btn').click(); }
 		});
 
+		document.getElementById('srk-smtp-clear-rate-btn').addEventListener('click', function() {
+			if (!confirm('Rate-Limit-Zähler und Statistik wirklich zurücksetzen?')) return;
+			var btn = this;
+			btn.disabled = true;
+
+			fetch(ajaxurl, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+				body: 'action=srk_smtp_clear_rate&nonce=<?php echo esc_js( $rate_nonce ); ?>'
+			})
+			.then(function(r) { return r.json(); })
+			.then(function(res) {
+				if (res.success) { location.reload(); }
+				else { alert(res.data); btn.disabled = false; }
+			})
+			.catch(function() { btn.disabled = false; });
+		});
+
 		document.getElementById('srk-smtp-clear-log-btn').addEventListener('click', function() {
 			if (!confirm('Gesamtes E-Mail-Log wirklich löschen?')) return;
 			var btn = this;
@@ -324,32 +354,30 @@ class SRK_SMTP_Settings {
 
 	private function render_stats(): void {
 		global $wpdb;
-		$table = $wpdb->prefix . 'srk_smtp_log';
+		$table = $wpdb->prefix . 'srk_smtp_rate';
 
 		if ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) ) !== $table ) {
-			echo '<p>Log-Tabelle nicht vorhanden.</p>';
+			echo '<p>Rate-Tabelle nicht vorhanden. Plugin bitte deaktivieren und erneut aktivieren.</p>';
 			return;
 		}
 
-		$now = current_time( 'mysql', true );
-
 		$sent_24h = (int) $wpdb->get_var( $wpdb->prepare(
-			"SELECT COUNT(*) FROM {$table} WHERE status = 'sent' AND sent_at >= %s",
+			"SELECT COUNT(*) FROM {$table} WHERE status = 'sent' AND created_at >= %s",
 			gmdate( 'Y-m-d H:i:s', time() - DAY_IN_SECONDS )
 		) );
 
 		$failed_24h = (int) $wpdb->get_var( $wpdb->prepare(
-			"SELECT COUNT(*) FROM {$table} WHERE status = 'failed' AND sent_at >= %s",
+			"SELECT COUNT(*) FROM {$table} WHERE status = 'failed' AND created_at >= %s",
 			gmdate( 'Y-m-d H:i:s', time() - DAY_IN_SECONDS )
 		) );
 
 		$sent_30d = (int) $wpdb->get_var( $wpdb->prepare(
-			"SELECT COUNT(*) FROM {$table} WHERE status = 'sent' AND sent_at >= %s",
+			"SELECT COUNT(*) FROM {$table} WHERE status = 'sent' AND created_at >= %s",
 			gmdate( 'Y-m-d H:i:s', time() - 30 * DAY_IN_SECONDS )
 		) );
 
 		$failed_30d = (int) $wpdb->get_var( $wpdb->prepare(
-			"SELECT COUNT(*) FROM {$table} WHERE status = 'failed' AND sent_at >= %s",
+			"SELECT COUNT(*) FROM {$table} WHERE status = 'failed' AND created_at >= %s",
 			gmdate( 'Y-m-d H:i:s', time() - 30 * DAY_IN_SECONDS )
 		) );
 

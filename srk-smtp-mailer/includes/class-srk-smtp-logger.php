@@ -12,10 +12,13 @@ class SRK_SMTP_Logger {
 	public static function create_table(): void {
 		global $wpdb;
 
-		$table   = $wpdb->prefix . 'srk_smtp_log';
 		$charset = $wpdb->get_charset_collate();
 
-		$sql = "CREATE TABLE {$table} (
+		require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+
+		// Email log table (optional, can be disabled).
+		$log_table = $wpdb->prefix . 'srk_smtp_log';
+		dbDelta( "CREATE TABLE {$log_table} (
 			id         BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
 			sent_at    DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			mail_type  VARCHAR(50)     NOT NULL DEFAULT 'general',
@@ -24,10 +27,20 @@ class SRK_SMTP_Logger {
 			error_msg  TEXT            NULL,
 			PRIMARY KEY (id),
 			KEY idx_sent_at (sent_at)
-		) {$charset};";
+		) {$charset};" );
 
-		require_once ABSPATH . 'wp-admin/includes/upgrade.php';
-		dbDelta( $sql );
+		// Rate limit / statistics table (always active, DSGVO-compliant: no personal data).
+		// ip_hash = HMAC-SHA256 of IP with AUTH_KEY salt — not reversible.
+		$rate_table = $wpdb->prefix . 'srk_smtp_rate';
+		dbDelta( "CREATE TABLE {$rate_table} (
+			id         BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+			created_at DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			status     VARCHAR(10)     NOT NULL DEFAULT 'sent',
+			ip_hash    VARCHAR(64)     NOT NULL DEFAULT '',
+			PRIMARY KEY (id),
+			KEY idx_created_status (created_at, status),
+			KEY idx_ip_created (ip_hash, created_at)
+		) {$charset};" );
 	}
 
 	/**

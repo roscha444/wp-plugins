@@ -50,79 +50,129 @@ add_action( 'plugins_loaded', function () {
 	SRK_SMTP_Logger::init();
 } );
 
-// Increment transient-based rate counters on successful send.
-add_action( 'wp_mail_succeeded', function () {
-	$count_hour = (int) get_transient( 'srk_smtp_count_hour' );
-	set_transient( 'srk_smtp_count_hour', $count_hour + 1, HOUR_IN_SECONDS );
+// DSGVO-compliant IP hash: HMAC-SHA256 with AUTH_KEY — not reversible.
+function srk_smtp_hash_ip(): string {
+	// Support reverse proxies (Cloudflare, nginx, load balancers).
+	// Only trust X-Forwarded-For if REMOTE_ADDR is a known proxy.
+	$ip = $_SERVER['REMOTE_ADDR'] ?? '';
 
-	$count_day = (int) get_transient( 'srk_smtp_count_day' );
-	set_transient( 'srk_smtp_count_day', $count_day + 1, DAY_IN_SECONDS );
+	if ( ! empty( $_SERVER['HTTP_X_FORWARDED_FOR'] ) ) {
+		// X-Forwarded-For can contain: "client, proxy1, proxy2" — take the first.
+		$forwarded = explode( ',', $_SERVER['HTTP_X_FORWARDED_FOR'] );
+		$candidate = trim( $forwarded[0] );
+		if ( filter_var( $candidate, FILTER_VALIDATE_IP ) ) {
+			$ip = $candidate;
+		}
+	}
+
+	return $ip ? hash_hmac( 'sha256', $ip, AUTH_KEY ) : '';
+}
+
+// Track every send/fail in the rate table (always active, DSGVO-compliant).
+add_action( 'wp_mail_succeeded', function () {
+	global $wpdb;
+	$wpdb->insert( $wpdb->prefix . 'srk_smtp_rate', [
+		'status'  => 'sent',
+		'ip_hash' => srk_smtp_hash_ip(),
+	], [ '%s', '%s' ] );
 } );
 
-// Rate limiting: block wp_mail when hourly or daily limit is exceeded.
+add_action( 'wp_mail_failed', function () {
+	global $wpdb;
+	$wpdb->insert( $wpdb->prefix . 'srk_smtp_rate', [
+		'status'  => 'failed',
+		'ip_hash' => srk_smtp_hash_ip(),
+	], [ '%s', '%s' ] );
+} );
+
+// Probabilistic cleanup: remove rate entries older than 30 days.
+add_action( 'wp_mail_succeeded', function () {
+	if ( wp_rand( 1, 50 ) === 1 ) {
+		global $wpdb;
+		$wpdb->query( $wpdb->prepare(
+			"DELETE FROM {$wpdb->prefix}srk_smtp_rate WHERE created_at < %s",
+			gmdate( 'Y-m-d H:i:s', time() - 30 * DAY_IN_SECONDS )
+		) );
+	}
+} );
+
+// Rate limiting: queries rate table — independent of log setting.
 add_filter( 'pre_wp_mail', function ( $null, $atts ) {
-	$opts = get_option( 'srk_smtp_options', [] );
+	global $wpdb;
+	$opts  = get_option( 'srk_smtp_options', [] );
+	$table = $wpdb->prefix . 'srk_smtp_rate';
 
 	$limit_hour = (int) ( $opts['rate_limit_hour'] ?? 30 );
 	$limit_day  = (int) ( $opts['rate_limit_day'] ?? 100 );
+	$limit_ip   = (int) ( $opts['rate_limit_ip'] ?? 5 );
 
-	// 0 means unlimited for both.
-	if ( 0 === $limit_hour && 0 === $limit_day ) {
+	if ( 0 === $limit_hour && 0 === $limit_day && 0 === $limit_ip ) {
 		return null;
 	}
 
-	$logging_enabled = ! isset( $opts['enable_log'] ) || $opts['enable_log'];
+	// Check per-IP hourly limit.
+	if ( $limit_ip > 0 ) {
+		$ip_hash = srk_smtp_hash_ip();
+		if ( $ip_hash ) {
+			$count_ip = (int) $wpdb->get_var( $wpdb->prepare(
+				"SELECT COUNT(*) FROM {$table} WHERE ip_hash = %s AND created_at >= %s",
+				$ip_hash,
+				gmdate( 'Y-m-d H:i:s', time() - HOUR_IN_SECONDS )
+			) );
+
+			if ( $count_ip >= $limit_ip ) {
+				$logging_enabled = ! isset( $opts['enable_log'] ) || $opts['enable_log'];
+				if ( $logging_enabled ) {
+					$wpdb->insert( $wpdb->prefix . 'srk_smtp_log', [
+						'mail_type' => 'general',
+						'subject'   => mb_substr( $atts['subject'] ?? '', 0, 255 ),
+						'status'    => 'failed',
+						'error_msg' => "IP-Rate-Limit erreicht: {$count_ip}/{$limit_ip} E-Mails pro Stunde (IP).",
+					], [ '%s', '%s', '%s', '%s' ] );
+				}
+				return false;
+			}
+		}
+	}
 
 	// Check hourly limit.
 	if ( $limit_hour > 0 ) {
-		if ( $logging_enabled ) {
-			global $wpdb;
-			$table      = $wpdb->prefix . 'srk_smtp_log';
-			$count_hour = (int) $wpdb->get_var( $wpdb->prepare(
-				"SELECT COUNT(*) FROM {$table} WHERE status = 'sent' AND sent_at >= %s",
-				gmdate( 'Y-m-d H:i:s', time() - HOUR_IN_SECONDS )
-			) );
-		} else {
-			$count_hour = (int) get_transient( 'srk_smtp_count_hour' );
-		}
+		$count_hour = (int) $wpdb->get_var( $wpdb->prepare(
+			"SELECT COUNT(*) FROM {$table} WHERE status = 'sent' AND created_at >= %s",
+			gmdate( 'Y-m-d H:i:s', time() - HOUR_IN_SECONDS )
+		) );
 
 		if ( $count_hour >= $limit_hour ) {
+			$logging_enabled = ! isset( $opts['enable_log'] ) || $opts['enable_log'];
 			if ( $logging_enabled ) {
-				$wpdb->insert( $table, [
+				$wpdb->insert( $wpdb->prefix . 'srk_smtp_log', [
 					'mail_type' => 'general',
 					'subject'   => mb_substr( $atts['subject'] ?? '', 0, 255 ),
 					'status'    => 'failed',
 					'error_msg' => "Rate-Limit erreicht: {$count_hour}/{$limit_hour} E-Mails pro Stunde.",
 				], [ '%s', '%s', '%s', '%s' ] );
 			}
-
 			return false;
 		}
 	}
 
 	// Check daily limit.
 	if ( $limit_day > 0 ) {
-		if ( $logging_enabled ) {
-			global $wpdb;
-			$table     = $wpdb->prefix . 'srk_smtp_log';
-			$count_day = (int) $wpdb->get_var( $wpdb->prepare(
-				"SELECT COUNT(*) FROM {$table} WHERE status = 'sent' AND sent_at >= %s",
-				gmdate( 'Y-m-d H:i:s', time() - DAY_IN_SECONDS )
-			) );
-		} else {
-			$count_day = (int) get_transient( 'srk_smtp_count_day' );
-		}
+		$count_day = (int) $wpdb->get_var( $wpdb->prepare(
+			"SELECT COUNT(*) FROM {$table} WHERE status = 'sent' AND created_at >= %s",
+			gmdate( 'Y-m-d H:i:s', time() - DAY_IN_SECONDS )
+		) );
 
 		if ( $count_day >= $limit_day ) {
+			$logging_enabled = ! isset( $opts['enable_log'] ) || $opts['enable_log'];
 			if ( $logging_enabled ) {
-				$wpdb->insert( $table, [
+				$wpdb->insert( $wpdb->prefix . 'srk_smtp_log', [
 					'mail_type' => 'general',
 					'subject'   => mb_substr( $atts['subject'] ?? '', 0, 255 ),
 					'status'    => 'failed',
 					'error_msg' => "Rate-Limit erreicht: {$count_day}/{$limit_day} E-Mails pro Tag.",
 				], [ '%s', '%s', '%s', '%s' ] );
 			}
-
 			return false;
 		}
 	}
@@ -362,6 +412,20 @@ add_action( 'wp_ajax_srk_smtp_send_test', function () {
 		}
 		wp_send_json_error( $error_msg );
 	}
+} );
+
+// AJAX: Clear rate limit counters.
+add_action( 'wp_ajax_srk_smtp_clear_rate', function () {
+	if ( ! current_user_can( 'manage_options' ) ) {
+		wp_send_json_error( 'Keine Berechtigung.' );
+	}
+
+	check_ajax_referer( 'srk_smtp_clear_rate', 'nonce' );
+
+	global $wpdb;
+	$wpdb->query( "TRUNCATE TABLE {$wpdb->prefix}srk_smtp_rate" );
+
+	wp_send_json_success( 'Rate-Limits zurückgesetzt.' );
 } );
 
 // AJAX: Clear email log.

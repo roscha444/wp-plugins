@@ -69,7 +69,7 @@ final class SRK_Migration {
 	public function __construct() {
 		add_action( 'admin_menu', [ $this, 'admin_menu' ] );
 		add_action( 'admin_init', [ $this, 'handle_request' ] );
-		add_action( 'admin_post_srk_migration_export', [ $this, 'handle_export' ] );
+		add_action( 'init', [ $this, 'handle_download' ], 1 );
 	}
 
 	/* ──────────────────────────────────────────────
@@ -115,23 +115,63 @@ final class SRK_Migration {
 			return;
 		}
 
+		if ( isset( $_POST['srk_migration_export'] ) ) {
+			check_admin_referer( 'srk_migration_export' );
+			$this->handle_export();
+		}
+
 		if ( isset( $_POST['srk_migration_import'] ) ) {
 			check_admin_referer( 'srk_migration_import' );
 			$this->handle_import();
 		}
 	}
 
+	/**
+	 * Stream ZIP download on init — fires before any output buffering.
+	 */
+	public function handle_download(): void {
+		if ( empty( $_GET['srk_migration_download'] ) ) {
+			return;
+		}
+
+		$token    = sanitize_text_field( $_GET['srk_migration_download'] );
+		$download = get_transient( 'srk_migration_dl_' . $token );
+
+		if ( ! $download || ! is_user_logged_in() || ! current_user_can( 'manage_options' ) ) {
+			return;
+		}
+
+		delete_transient( 'srk_migration_dl_' . $token );
+
+		$file = $download['file'];
+		$name = $download['name'];
+
+		if ( ! file_exists( $file ) ) {
+			wp_die( 'Export-Datei nicht gefunden.' );
+		}
+
+		$size = filesize( $file );
+
+		while ( ob_get_level() ) {
+			ob_end_clean();
+		}
+
+		header( 'Content-Type: application/octet-stream' );
+		header( 'Content-Disposition: attachment; filename="' . $name . '"' );
+		header( 'Content-Length: ' . $size );
+		header( 'Content-Transfer-Encoding: binary' );
+		header( 'Cache-Control: no-store' );
+
+		readfile( $file );
+		unlink( $file );
+		exit;
+	}
+
 	/* ══════════════════════════════════════════════
 	 *  EXPORT
 	 * ══════════════════════════════════════════════ */
 
-	public function handle_export(): void {
-		check_admin_referer( 'srk_migration_export' );
-
-		if ( ! current_user_can( 'manage_options' ) ) {
-			wp_die( 'Keine Berechtigung.' );
-		}
-
+	private function handle_export(): void {
 		if ( ! class_exists( 'ZipArchive' ) ) {
 			wp_die( 'ZipArchive PHP-Extension ist nicht verfügbar.' );
 		}
@@ -201,21 +241,15 @@ final class SRK_Migration {
 		$zip->close();
 
 		$filename = 'srk-migration-' . gmdate( 'Y-m-d-His' ) . '.zip';
-		$filesize = filesize( $tmp_file );
 
-		// Clean all output buffers to prevent corrupted download.
-		while ( ob_get_level() ) {
-			ob_end_clean();
-		}
+		// Store download token — file is streamed on next request via init hook.
+		$token = wp_generate_password( 32, false );
+		set_transient( 'srk_migration_dl_' . $token, [
+			'file' => $tmp_file,
+			'name' => $filename,
+		], 300 );
 
-		header( 'Content-Type: application/zip' );
-		header( 'Content-Disposition: attachment; filename="' . $filename . '"' );
-		header( 'Content-Length: ' . $filesize );
-		header( 'Cache-Control: no-store, no-cache, must-revalidate' );
-		header( 'Pragma: no-cache' );
-
-		readfile( $tmp_file );
-		unlink( $tmp_file );
+		wp_safe_redirect( site_url( '?srk_migration_download=' . $token ) );
 		exit;
 	}
 
@@ -565,8 +599,7 @@ final class SRK_Migration {
 		$active_plugins = get_option( 'active_plugins', [] );
 		$all_plugins    = get_plugins();
 		?>
-		<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
-			<input type="hidden" name="action" value="srk_migration_export">
+		<form method="post">
 			<?php wp_nonce_field( 'srk_migration_export' ); ?>
 
 			<table class="form-table">
@@ -658,7 +691,7 @@ final class SRK_Migration {
 				</tr>
 			</table>
 
-			<?php submit_button( 'Export herunterladen', 'primary', 'submit' ); ?>
+			<?php submit_button( 'Export herunterladen', 'primary', 'srk_migration_export' ); ?>
 		</form>
 
 		<script>

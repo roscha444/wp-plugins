@@ -66,10 +66,60 @@ final class SRK_Migration {
 	/** Transient key for import results. */
 	private const RESULT_TRANSIENT = 'srk_migration_result';
 
+	/** Directory name for exports inside uploads. */
+	private const EXPORT_DIR = 'srk-migration-exports';
+
 	public function __construct() {
 		add_action( 'admin_menu', [ $this, 'admin_menu' ] );
 		add_action( 'admin_init', [ $this, 'handle_request' ] );
-		add_action( 'init', [ $this, 'handle_download' ], 1 );
+		add_action( 'srk_migration_cleanup', [ $this, 'cleanup_exports' ] );
+
+		// Schedule cleanup cron if not exists.
+		if ( ! wp_next_scheduled( 'srk_migration_cleanup' ) ) {
+			wp_schedule_event( time(), 'srk_every_10_min', 'srk_migration_cleanup' );
+		}
+
+		add_filter( 'cron_schedules', [ $this, 'add_cron_schedule' ] );
+	}
+
+	public function add_cron_schedule( array $schedules ): array {
+		$schedules['srk_every_10_min'] = [
+			'interval' => 600,
+			'display'  => 'Alle 10 Minuten',
+		];
+		return $schedules;
+	}
+
+	/**
+	 * Delete export ZIPs older than 10 minutes.
+	 */
+	public function cleanup_exports(): void {
+		$dir = $this->get_export_dir();
+		if ( ! is_dir( $dir ) ) {
+			return;
+		}
+		foreach ( glob( $dir . '/*.zip' ) as $file ) {
+			if ( filemtime( $file ) < time() - 600 ) {
+				unlink( $file );
+			}
+		}
+	}
+
+	/**
+	 * Get the protected export directory path, creating it if needed.
+	 */
+	private function get_export_dir(): string {
+		$upload_dir = wp_upload_dir();
+		$dir        = $upload_dir['basedir'] . '/' . self::EXPORT_DIR;
+
+		if ( ! is_dir( $dir ) ) {
+			wp_mkdir_p( $dir );
+			// Block direct access.
+			file_put_contents( $dir . '/.htaccess', "Deny from all\n" );
+			file_put_contents( $dir . '/index.php', "<?php // Silence.\n" );
+		}
+
+		return $dir;
 	}
 
 	/* ──────────────────────────────────────────────
@@ -124,27 +174,23 @@ final class SRK_Migration {
 			check_admin_referer( 'srk_migration_import' );
 			$this->handle_import();
 		}
+
+		if ( isset( $_GET['srk_download'] ) ) {
+			check_admin_referer( 'srk_migration_download' );
+			$this->stream_download( sanitize_file_name( $_GET['srk_download'] ) );
+		}
+
+		if ( isset( $_POST['srk_migration_delete'] ) ) {
+			check_admin_referer( 'srk_migration_delete' );
+			$this->delete_export( sanitize_file_name( $_POST['srk_migration_delete'] ) );
+		}
 	}
 
 	/**
-	 * Stream ZIP download on init — fires before any output buffering.
+	 * Stream a stored export ZIP to the admin user.
 	 */
-	public function handle_download(): void {
-		if ( empty( $_GET['srk_migration_download'] ) ) {
-			return;
-		}
-
-		$token    = sanitize_text_field( $_GET['srk_migration_download'] );
-		$download = get_transient( 'srk_migration_dl_' . $token );
-
-		if ( ! $download || ! is_user_logged_in() || ! current_user_can( 'manage_options' ) ) {
-			return;
-		}
-
-		delete_transient( 'srk_migration_dl_' . $token );
-
-		$file = $download['file'];
-		$name = $download['name'];
+	private function stream_download( string $filename ): void {
+		$file = $this->get_export_dir() . '/' . $filename;
 
 		if ( ! file_exists( $file ) ) {
 			wp_die( 'Export-Datei nicht gefunden.' );
@@ -157,13 +203,24 @@ final class SRK_Migration {
 		}
 
 		header( 'Content-Type: application/octet-stream' );
-		header( 'Content-Disposition: attachment; filename="' . $name . '"' );
+		header( 'Content-Disposition: attachment; filename="' . $filename . '"' );
 		header( 'Content-Length: ' . $size );
 		header( 'Content-Transfer-Encoding: binary' );
 		header( 'Cache-Control: no-store' );
 
 		readfile( $file );
-		unlink( $file );
+		exit;
+	}
+
+	/**
+	 * Delete a stored export ZIP.
+	 */
+	private function delete_export( string $filename ): void {
+		$file = $this->get_export_dir() . '/' . $filename;
+		if ( file_exists( $file ) ) {
+			unlink( $file );
+		}
+		wp_safe_redirect( admin_url( 'admin.php?page=' . self::SLUG . '&deleted=1' ) );
 		exit;
 	}
 
@@ -240,16 +297,12 @@ final class SRK_Migration {
 		$zip->addFromString( 'manifest.json', wp_json_encode( $manifest, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT ) );
 		$zip->close();
 
+		// Move to protected export directory.
 		$filename = 'srk-migration-' . gmdate( 'Y-m-d-His' ) . '.zip';
+		$dest     = $this->get_export_dir() . '/' . $filename;
+		rename( $tmp_file, $dest );
 
-		// Store download token — file is streamed on next request via init hook.
-		$token = wp_generate_password( 32, false );
-		set_transient( 'srk_migration_dl_' . $token, [
-			'file' => $tmp_file,
-			'name' => $filename,
-		], 300 );
-
-		wp_safe_redirect( site_url( '?srk_migration_download=' . $token ) );
+		wp_safe_redirect( admin_url( 'admin.php?page=' . self::SLUG . '&exported=1' ) );
 		exit;
 	}
 
@@ -589,10 +642,84 @@ final class SRK_Migration {
 	 *  ADMIN PAGE
 	 * ══════════════════════════════════════════════ */
 
+	/**
+	 * List existing export ZIPs in the protected directory.
+	 */
+	private function get_existing_exports(): array {
+		$dir   = $this->get_export_dir();
+		$files = glob( $dir . '/*.zip' );
+		if ( ! $files ) {
+			return [];
+		}
+		$exports = [];
+		foreach ( $files as $file ) {
+			$exports[] = [
+				'name' => basename( $file ),
+				'size' => filesize( $file ),
+				'time' => filemtime( $file ),
+			];
+		}
+		// Newest first.
+		usort( $exports, fn( $a, $b ) => $b['time'] <=> $a['time'] );
+		return $exports;
+	}
+
 	public function render_export_page(): void {
+		$exports = $this->get_existing_exports();
+		$deleted = isset( $_GET['deleted'] );
 		?>
 		<div class="wrap">
 			<h1>SRK Migration — Export</h1>
+
+			<?php if ( $deleted ) : ?>
+				<div class="notice notice-success is-dismissible"><p>Export gelöscht.</p></div>
+			<?php endif; ?>
+
+			<?php if ( $exports ) : ?>
+				<h2>Vorhandene Exports</h2>
+				<table class="widefat striped" style="max-width: 700px;">
+					<thead>
+						<tr>
+							<th>Datei</th>
+							<th>Größe</th>
+							<th>Erstellt</th>
+							<th>Aktionen</th>
+						</tr>
+					</thead>
+					<tbody>
+						<?php foreach ( $exports as $export ) :
+							$dl_url = wp_nonce_url(
+								admin_url( 'admin.php?page=' . self::SLUG . '&srk_download=' . urlencode( $export['name'] ) ),
+								'srk_migration_download'
+							);
+							$age = time() - $export['time'];
+							$expires = max( 0, 600 - $age );
+						?>
+						<tr>
+							<td><code><?php echo esc_html( $export['name'] ); ?></code></td>
+							<td><?php echo esc_html( size_format( $export['size'] ) ); ?></td>
+							<td>
+								<?php echo esc_html( date_i18n( 'd.m.Y H:i:s', $export['time'] ) ); ?>
+								<br><small>Auto-Löschung in <?php echo esc_html( gmdate( 'i:s', $expires ) ); ?> Min.</small>
+							</td>
+							<td>
+								<a href="<?php echo esc_url( $dl_url ); ?>" class="button button-primary button-small">Herunterladen</a>
+								<form method="post" style="display: inline;">
+									<?php wp_nonce_field( 'srk_migration_delete' ); ?>
+									<button type="submit" name="srk_migration_delete"
+											value="<?php echo esc_attr( $export['name'] ); ?>"
+											class="button button-small"
+											onclick="return confirm('Export wirklich löschen?');">Löschen</button>
+								</form>
+							</td>
+						</tr>
+						<?php endforeach; ?>
+					</tbody>
+				</table>
+				<br>
+			<?php endif; ?>
+
+			<h2>Neuen Export erstellen</h2>
 			<p>Erstelle ein Migrations-Paket mit Theme, Plugins, Seiteninhalten und Einstellungen.</p>
 			<?php
 		$active_theme   = wp_get_theme();
@@ -755,3 +882,8 @@ final class SRK_Migration {
 }
 
 new SRK_Migration();
+
+// Clean up cron on deactivation.
+register_deactivation_hook( __FILE__, function () {
+	wp_clear_scheduled_hook( 'srk_migration_cleanup' );
+} );

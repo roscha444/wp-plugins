@@ -51,6 +51,11 @@ class SRK_Form_Handler {
 				wp_send_json_error( 'Bitte füllen Sie alle Pflichtfelder aus.' );
 			}
 
+			// Strip URLs from non-URL fields to prevent phishing links.
+			if ( 'email' !== $field['type'] ) {
+				$value = self::strip_dangerous_content( $value );
+			}
+
 			$values[ $field['name'] ] = [
 				'label' => $field['label'],
 				'value' => $value,
@@ -59,13 +64,13 @@ class SRK_Form_Handler {
 
 		// Build email.
 		$recipient = $config['recipient'] ?? get_option( 'admin_email' );
-		$subject   = $config['subject'] ?? 'Formular-Anfrage';
+		$subject   = self::sanitize_header_value( $config['subject'] ?? 'Formular-Anfrage' );
 
 		// Append name or identifier to subject if available.
 		$name_field = $values['name']['value'] ?? ( ( $values['firstname']['value'] ?? '' ) . ' ' . ( $values['lastname']['value'] ?? '' ) );
 		$name_field = trim( $name_field );
 		if ( $name_field ) {
-			$subject .= ' – ' . $name_field;
+			$subject .= ' – ' . self::sanitize_header_value( $name_field );
 		}
 
 		$body = self::build_email_body( $config['title'] ?? $form_id, $values );
@@ -76,12 +81,13 @@ class SRK_Form_Handler {
 		$smtp_opts  = get_option( 'srk_smtp_options', [] );
 		$from_email = ! empty( $smtp_opts['from_email'] ) ? $smtp_opts['from_email'] : get_option( 'admin_email' );
 		$from_name  = ! empty( $smtp_opts['from_name'] ) ? $smtp_opts['from_name'] : get_bloginfo( 'name' );
-		$headers[]  = 'From: ' . $from_name . ' <' . $from_email . '>';
+		$headers[]  = 'From: ' . self::sanitize_header_value( $from_name ) . ' <' . $from_email . '>';
 
-		// Set reply-to if email field exists.
+		// Set reply-to if email field exists (validated email only).
 		$reply_email = $values['email']['value'] ?? '';
-		if ( $reply_email ) {
-			$headers[] = 'Reply-To: ' . ( $name_field ?: $reply_email ) . ' <' . $reply_email . '>';
+		if ( $reply_email && is_email( $reply_email ) ) {
+			$safe_name = self::sanitize_header_value( $name_field ?: $reply_email );
+			$headers[] = 'Reply-To: ' . $safe_name . ' <' . $reply_email . '>';
 		}
 
 		$sent = wp_mail( $recipient, $subject, $body, $headers );
@@ -123,16 +129,55 @@ class SRK_Form_Handler {
 		}
 	}
 
-	private static function build_email_body( string $title, array $values ): string {
-		$separator = str_repeat( '=', 40 );
+	/**
+	 * Strip URLs, HTML tags, and suspicious patterns from user input.
+	 */
+	private static function strip_dangerous_content( string $value ): string {
+		// Remove any HTML tags.
+		$value = wp_strip_all_tags( $value );
 
-		$body = $title . "\n" . $separator . "\n\n";
+		// Remove URLs (http/https/ftp).
+		$value = preg_replace( '#https?://\S+#i', '[Link entfernt]', $value );
+		$value = preg_replace( '#ftp://\S+#i', '[Link entfernt]', $value );
+
+		// Remove bare domain patterns (example.com/path).
+		$value = preg_replace( '#\b\w+\.\w{2,6}/\S+#i', '[Link entfernt]', $value );
+
+		// Remove <script>, javascript:, data: patterns.
+		$value = preg_replace( '#(javascript|data|vbscript)\s*:#i', '', $value );
+
+		return $value;
+	}
+
+	/**
+	 * Sanitize values used in email headers to prevent header injection.
+	 * Strips newlines, carriage returns, and null bytes.
+	 */
+	private static function sanitize_header_value( string $value ): string {
+		return preg_replace( '/[\r\n\0]+/', ' ', $value );
+	}
+
+	private static function build_email_body( string $title, array $values ): string {
+		$separator = str_repeat( '─', 44 );
+		$site_name = get_bloginfo( 'name' );
+		$date      = wp_date( 'd.m.Y \u\m H:i \U\h\r' );
+
+		$body  = "╔══════════════════════════════════════════╗\n";
+		$body .= "  {$title}\n";
+		$body .= "╚══════════════════════════════════════════╝\n\n";
+		$body .= "Eingegangen am {$date}\n";
+		$body .= "{$separator}\n\n";
 
 		foreach ( $values as $field ) {
 			$val   = $field['value'] ?: '–';
-			$label = str_pad( $field['label'] . ':', 20 );
-			$body .= "{$label}{$val}\n";
+			$label = $field['label'];
+			$body .= "  {$label}:\n";
+			$body .= "  {$val}\n\n";
 		}
+
+		$body .= "{$separator}\n";
+		$body .= "Diese Nachricht wurde über das Kontaktformular\n";
+		$body .= "auf {$site_name} gesendet.\n";
 
 		return $body;
 	}

@@ -112,6 +112,27 @@ add_filter( 'pre_wp_mail', function ( $null, $atts ) {
 	return null;
 }, 10, 2 );
 
+// Sanitize outgoing email headers to prevent header injection attacks.
+add_filter( 'wp_mail', function ( $args ) {
+	// Strip newlines from subject (prevents header injection).
+	$args['subject'] = preg_replace( '/[\r\n]+/', ' ', $args['subject'] );
+
+	// Validate and sanitize To address.
+	if ( is_string( $args['to'] ) ) {
+		$args['to'] = sanitize_email( $args['to'] );
+	}
+
+	// Strip newlines from all custom headers.
+	if ( ! empty( $args['headers'] ) ) {
+		$headers = is_array( $args['headers'] ) ? $args['headers'] : explode( "\n", $args['headers'] );
+		$args['headers'] = array_map( function ( $h ) {
+			return preg_replace( '/[\r\n]+/', ' ', $h );
+		}, $headers );
+	}
+
+	return $args;
+} );
+
 // Configure PHPMailer to use SMTP.
 add_action( 'phpmailer_init', function ( $phpmailer ) {
 	$opts = get_option( 'srk_smtp_options', [] );

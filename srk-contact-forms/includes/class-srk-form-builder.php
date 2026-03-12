@@ -105,16 +105,18 @@ class SRK_Form_Builder {
 			return;
 		}
 
-		$ts = time();
-		$token = wp_hash( $this->form_id . '|' . $ts );
+		$ts    = time();
+		$rand  = bin2hex( random_bytes( 8 ) );
+		$token = wp_hash( $this->form_id . '|' . $ts . '|' . $rand );
 
 		// Honeypot: invisible field — bots fill it, humans don't.
 		echo '<div style="position:absolute;left:-9999px;top:-9999px;" aria-hidden="true">';
 		echo '<input type="text" name="srk_cf_website" value="" tabindex="-1" autocomplete="off">';
 		echo '</div>';
 
-		// Timestamp for minimum time check.
+		// Timestamp and random salt for minimum time check + token integrity.
 		echo '<input type="hidden" name="srk_cf_ts" value="' . esc_attr( $ts ) . '">';
+		echo '<input type="hidden" name="srk_cf_rand" value="' . esc_attr( $rand ) . '">';
 		echo '<input type="hidden" name="srk_cf_token" value="' . esc_attr( $token ) . '">';
 	}
 

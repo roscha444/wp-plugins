@@ -33,9 +33,17 @@ class SRK_Form_Handler {
 		// Antispam checks.
 		self::check_antispam();
 
-		// IP-based rate limiting.
+		// IP-based rate limiting (DSGVO-compliant: HMAC hash, not stored as plaintext).
 		$ip = $_SERVER['REMOTE_ADDR'] ?? '';
-		$transient_key = 'srk_cf_ip_' . md5( $ip );
+		$trusted_proxies = apply_filters( 'srk_cf_trusted_proxies', [ '127.0.0.1', '::1' ] );
+		if ( ! empty( $_SERVER['HTTP_X_FORWARDED_FOR'] ) && in_array( $ip, $trusted_proxies, true ) ) {
+			$forwarded = explode( ',', $_SERVER['HTTP_X_FORWARDED_FOR'] );
+			$candidate = trim( $forwarded[0] );
+			if ( filter_var( $candidate, FILTER_VALIDATE_IP ) ) {
+				$ip = $candidate;
+			}
+		}
+		$transient_key = 'srk_cf_ip_' . hash_hmac( 'sha256', $ip, wp_salt( 'auth' ) );
 		$submissions = (int) get_transient( $transient_key );
 		if ( $submissions >= 5 ) {
 			wp_send_json_error( 'Zu viele Anfragen. Bitte versuchen Sie es in einigen Minuten erneut.' );
@@ -61,7 +69,7 @@ class SRK_Form_Handler {
 			}
 
 			if ( 'select' === $field['type'] && ! empty( $field['options'] ) && ! array_key_exists( $value, $field['options'] ) ) {
-				wp_send_json_error( 'Ungültige Auswahl für "' . $field['label'] . '".' );
+				wp_send_json_error( 'Ungültige Auswahl. Bitte überprüfen Sie Ihre Eingaben.' );
 			}
 
 			// Strip URLs from non-URL fields to prevent phishing links.
@@ -131,8 +139,9 @@ class SRK_Form_Handler {
 
 		// Token: verify integrity (prevents replay with fake timestamps).
 		$form_id = sanitize_key( $_POST['form_id'] ?? '' );
+		$rand    = sanitize_text_field( $_POST['srk_cf_rand'] ?? '' );
 		$token   = $_POST['srk_cf_token'] ?? '';
-		if ( ! $token || $token !== wp_hash( $form_id . '|' . $ts ) ) {
+		if ( ! $token || $token !== wp_hash( $form_id . '|' . $ts . '|' . $rand ) ) {
 			wp_send_json_error( 'Sicherheitsprüfung fehlgeschlagen.' );
 		}
 

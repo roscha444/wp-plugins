@@ -2,7 +2,7 @@
 /**
  * Plugin Name: SRK Security
  * Description: WordPress-Hardening: CSP mit Nonce, Security Headers, XML-RPC, Pingbacks, User-Enumeration, Login-Schutz und mehr.
- * Version: 1.3.0
+ * Version: 1.4.0
  * Author: Robin Schumacher
  * Author URI: https://srk-hosting.de
  * Text Domain: srk-security
@@ -32,7 +32,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'SRK_SEC_VERSION', '1.3.0' );
+define( 'SRK_SEC_VERSION', '1.4.0' );
 
 // ── 1. Remove WordPress Version Disclosure ──
 remove_action( 'wp_head', 'wp_generator' );
@@ -48,9 +48,15 @@ add_filter( 'wp_headers', function ( $headers ) {
 	return $headers;
 } );
 
-// ── 4. Block Author Enumeration (?author=N) ──
+// ── 4. Block Author Enumeration (?author=N, POST, and author archives) ──
 add_action( 'template_redirect', function () {
-	if ( isset( $_GET['author'] ) && ! is_admin() ) {
+	if ( is_admin() ) {
+		return;
+	}
+	if ( isset( $_GET['author'] ) || isset( $_POST['author'] ) ) {
+		wp_die( 'Zugriff verweigert.', 'Verboten', [ 'response' => 403 ] );
+	}
+	if ( is_author() ) {
 		wp_die( 'Zugriff verweigert.', 'Verboten', [ 'response' => 403 ] );
 	}
 } );
@@ -63,6 +69,27 @@ add_filter( 'rest_endpoints', function ( $endpoints ) {
 	}
 	return $endpoints;
 } );
+
+// ── 5b. Hide author details from REST API posts/comments for unauthenticated users ──
+add_filter( 'rest_prepare_post', function ( $response ) {
+	if ( ! is_user_logged_in() ) {
+		$data = $response->get_data();
+		unset( $data['author'] );
+		$response->set_data( $data );
+	}
+	return $response;
+}, 10 );
+
+add_filter( 'rest_prepare_comment', function ( $response ) {
+	if ( ! is_user_logged_in() ) {
+		$data = $response->get_data();
+		unset( $data['author'] );
+		unset( $data['author_name'] );
+		unset( $data['author_email'] );
+		$response->set_data( $data );
+	}
+	return $response;
+}, 10 );
 
 // ── 6. Generic Login Error Message ──
 add_filter( 'login_errors', function () {
@@ -221,10 +248,13 @@ class SRK_CSP {
 		return str_replace( '<style', '<style nonce="' . esc_attr( self::nonce() ) . '"', $tag );
 	}
 
+	private static int $ob_level = 0;
+
 	/**
 	 * Start output buffering to catch inline <style> blocks.
 	 */
 	public static function ob_start(): void {
+		self::$ob_level = ob_get_level();
 		ob_start();
 	}
 
@@ -232,6 +262,9 @@ class SRK_CSP {
 	 * Flush buffer and inject nonces into any <style> and <script> tags without them.
 	 */
 	public static function ob_flush(): void {
+		if ( ob_get_level() <= self::$ob_level ) {
+			return;
+		}
 		$html = ob_get_clean();
 		if ( ! empty( $html ) ) {
 			$nonce = esc_attr( self::nonce() );
@@ -274,6 +307,8 @@ add_action( 'send_headers', function () {
 	header( 'X-Frame-Options: SAMEORIGIN' );
 	header( 'Referrer-Policy: strict-origin-when-cross-origin' );
 	header( 'Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=()' );
+	header( 'Strict-Transport-Security: max-age=31536000; includeSubDomains' );
+	header( 'Cross-Origin-Opener-Policy: same-origin' );
 
 	if ( SRK_CSP::enabled() ) {
 		header( 'Content-Security-Policy: ' . SRK_CSP::build_header() );
@@ -333,12 +368,12 @@ function srk_sec_render_page(): void {
 		],
 		[
 			'title'       => 'Author-Enumeration blockiert',
-			'description' => 'Blockiert ?author=N mit HTTP 403.',
+			'description' => 'Blockiert ?author=N (GET/POST) und Author-Archive mit HTTP 403.',
 			'hook'        => 'template_redirect',
 		],
 		[
 			'title'       => 'REST API User-Enumeration blockiert',
-			'description' => 'Entfernt /wp-json/wp/v2/users für nicht eingeloggte Besucher.',
+			'description' => 'Entfernt /wp-json/wp/v2/users und Author-Felder aus Posts/Kommentaren.',
 			'hook'        => 'rest_endpoints',
 		],
 		[
@@ -348,7 +383,7 @@ function srk_sec_render_page(): void {
 		],
 		[
 			'title'       => 'Security Headers aktiv',
-			'description' => 'X-Content-Type-Options, X-Frame-Options, Referrer-Policy, Permissions-Policy.',
+			'description' => 'X-Content-Type-Options, X-Frame-Options, Referrer-Policy, Permissions-Policy, HSTS, COOP.',
 			'hook'        => 'send_headers',
 		],
 		[

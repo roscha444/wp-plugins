@@ -93,8 +93,8 @@ add_action( 'wp_mail_failed', function () {
 	], [ '%s', '%s' ] );
 } );
 
-// Probabilistic cleanup: remove rate entries older than 30 days.
-add_action( 'wp_mail_succeeded', function () {
+// Probabilistic cleanup: remove rate entries older than 30 days (on success and failure).
+$srk_smtp_cleanup = function () {
 	if ( wp_rand( 1, 50 ) === 1 ) {
 		global $wpdb;
 		$wpdb->query( $wpdb->prepare(
@@ -102,7 +102,9 @@ add_action( 'wp_mail_succeeded', function () {
 			gmdate( 'Y-m-d H:i:s', time() - 30 * DAY_IN_SECONDS )
 		) );
 	}
-} );
+};
+add_action( 'wp_mail_succeeded', $srk_smtp_cleanup );
+add_action( 'wp_mail_failed', $srk_smtp_cleanup );
 
 // Rate limiting: queries rate table — independent of log setting.
 add_filter( 'pre_wp_mail', function ( $null, $atts ) {
@@ -118,10 +120,11 @@ add_filter( 'pre_wp_mail', function ( $null, $atts ) {
 		return null;
 	}
 
-	// Check per-IP hourly limit.
+	// Check per-IP hourly limit (SELECT FOR UPDATE to prevent race conditions).
 	if ( $limit_ip > 0 ) {
 		$ip_hash = srk_smtp_hash_ip();
 		if ( $ip_hash ) {
+			$wpdb->query( 'SET @srk_lock = GET_LOCK("srk_rate_limit", 2)' );
 			$count_ip = (int) $wpdb->get_var( $wpdb->prepare(
 				"SELECT COUNT(*) FROM {$table} WHERE ip_hash = %s AND created_at >= %s",
 				$ip_hash,
@@ -129,6 +132,7 @@ add_filter( 'pre_wp_mail', function ( $null, $atts ) {
 			) );
 
 			if ( $count_ip >= $limit_ip ) {
+				$wpdb->query( 'DO RELEASE_LOCK("srk_rate_limit")' );
 				$logging_enabled = ! isset( $opts['enable_log'] ) || $opts['enable_log'];
 				if ( $logging_enabled ) {
 					$wpdb->insert( $wpdb->prefix . 'srk_smtp_log', [
@@ -140,6 +144,7 @@ add_filter( 'pre_wp_mail', function ( $null, $atts ) {
 				}
 				return false;
 			}
+			$wpdb->query( 'DO RELEASE_LOCK("srk_rate_limit")' );
 		}
 	}
 
@@ -264,13 +269,14 @@ add_action( 'wp_ajax_srk_smtp_test', function () {
 	$username   = $opts['username'];
 	$password   = SRK_SMTP_Settings::decrypt_password( $opts['password'] );
 
-	// Step 1: Basic DNS / connectivity check.
-	$ip = gethostbyname( $host );
-	if ( $ip === $host && ! filter_var( $host, FILTER_VALIDATE_IP ) ) {
-		wp_send_json_error(
-			"DNS-Auflösung fehlgeschlagen: Der Host \"{$host}\" konnte nicht aufgelöst werden. "
-			. 'Bitte prüfen Sie den Hostnamen.'
-		);
+	// Step 0: SSRF protection — block internal/private hosts.
+	$resolved_ip = gethostbyname( $host );
+	if ( $resolved_ip === $host && ! filter_var( $host, FILTER_VALIDATE_IP ) ) {
+		wp_send_json_error( 'DNS-Auflösung fehlgeschlagen. Bitte prüfen Sie den Hostnamen.' );
+	}
+	$check_ip = filter_var( $host, FILTER_VALIDATE_IP ) ? $host : $resolved_ip;
+	if ( $check_ip && ! filter_var( $check_ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE ) ) {
+		wp_send_json_error( 'Verbindung zu internen/privaten IP-Adressen ist nicht erlaubt.' );
 	}
 
 	// Step 2: Socket-level port check (non-blocking, informational only).
@@ -336,8 +342,6 @@ add_action( 'wp_ajax_srk_smtp_test', function () {
 			$error .= $socket_info;
 		}
 		$error .= "SMTP-Verbindung fehlgeschlagen:\n\n";
-		$error .= "Host: {$host}:{$port} ({$encryption})\n";
-		$error .= "Benutzer: {$username}\n\n";
 		$error .= "Fehler: " . $e->getMessage() . "\n\n";
 
 		// Check for common issues.
@@ -355,13 +359,15 @@ add_action( 'wp_ajax_srk_smtp_test', function () {
 		}
 		$error .= "\n";
 
-		// Extract useful lines from debug log.
+		// Extract useful lines from debug log (strip credentials and sensitive data).
 		$useful_lines = [];
 		foreach ( explode( "\n", $debug_log ) as $line ) {
 			$line = trim( $line );
 			if ( '' === $line ) continue;
-			// Show server responses and errors.
-			if ( preg_match( '/^SERVER\s*->|^SMTP ERROR|^\d{3}\s|AUTH|LOGIN|STARTTLS/i', $line ) ) {
+			// Skip lines containing credentials.
+			if ( preg_match( '/^CLIENT\s*->.*AUTH\s+(PLAIN|LOGIN)\s+\S/i', $line ) ) continue;
+			// Show server responses and errors only.
+			if ( preg_match( '/^SERVER\s*->|^SMTP ERROR|^\d{3}\s|STARTTLS/i', $line ) ) {
 				$useful_lines[] = $line;
 			}
 		}
@@ -387,6 +393,13 @@ add_action( 'wp_ajax_srk_smtp_send_test', function () {
 	if ( empty( $opts['host'] ) || empty( $opts['username'] ) || empty( $opts['password'] ) ) {
 		wp_send_json_error( 'SMTP-Einstellungen unvollständig.' );
 	}
+
+	// Rate limit test emails: max 5 per hour.
+	$test_count = (int) get_transient( 'srk_smtp_test_count' );
+	if ( $test_count >= 5 ) {
+		wp_send_json_error( 'Test-E-Mail-Limit erreicht (max. 5 pro Stunde).' );
+	}
+	set_transient( 'srk_smtp_test_count', $test_count + 1, HOUR_IN_SECONDS );
 
 	$from_email = ! empty( $opts['from_email'] ) ? $opts['from_email'] : get_option( 'admin_email' );
 	$from_name  = ! empty( $opts['from_name'] ) ? $opts['from_name'] : get_bloginfo( 'name' );

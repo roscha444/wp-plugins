@@ -6,30 +6,50 @@ class SRK_SMTP_Settings {
 
 	private string $option_key = 'srk_smtp_options';
 
-	private const CIPHER = 'aes-256-cbc';
+	private const CIPHER     = 'aes-256-gcm';
+	private const CIPHER_CBC = 'aes-256-cbc';
 
 	public static function encrypt_password( string $plain ): string {
 		if ( '' === $plain || ! function_exists( 'openssl_encrypt' ) ) {
 			return $plain;
 		}
 		$key = hash( 'sha256', AUTH_KEY, true );
-		$iv  = openssl_random_pseudo_bytes( openssl_cipher_iv_length( self::CIPHER ) );
-		$enc = openssl_encrypt( $plain, self::CIPHER, $key, 0, $iv );
-		return 'enc:' . base64_encode( $iv . '::' . $enc );
+		$iv  = random_bytes( openssl_cipher_iv_length( self::CIPHER ) );
+		$tag = '';
+		$enc = openssl_encrypt( $plain, self::CIPHER, $key, 0, $iv, $tag, '', 16 );
+		return 'enc2:' . base64_encode( $iv . '::' . $tag . '::' . $enc );
 	}
 
 	public static function decrypt_password( string $stored ): string {
-		if ( ! str_starts_with( $stored, 'enc:' ) || ! function_exists( 'openssl_decrypt' ) ) {
+		if ( ! function_exists( 'openssl_decrypt' ) ) {
 			return $stored;
 		}
-		$data = base64_decode( substr( $stored, 4 ) );
-		if ( false === $data || ! str_contains( $data, '::' ) ) {
-			return $stored;
+
+		// New format: AES-256-GCM with auth tag.
+		if ( str_starts_with( $stored, 'enc2:' ) ) {
+			$data = base64_decode( substr( $stored, 5 ) );
+			if ( false === $data || substr_count( $data, '::' ) < 2 ) {
+				return $stored;
+			}
+			[ $iv, $tag, $enc ] = explode( '::', $data, 3 );
+			$key   = hash( 'sha256', AUTH_KEY, true );
+			$plain = openssl_decrypt( $enc, self::CIPHER, $key, 0, $iv, $tag );
+			return false !== $plain ? $plain : $stored;
 		}
-		[ $iv, $enc ] = explode( '::', $data, 2 );
-		$key   = hash( 'sha256', AUTH_KEY, true );
-		$plain = openssl_decrypt( $enc, self::CIPHER, $key, 0, $iv );
-		return false !== $plain ? $plain : $stored;
+
+		// Legacy format: AES-256-CBC (auto-migrated on next save).
+		if ( str_starts_with( $stored, 'enc:' ) ) {
+			$data = base64_decode( substr( $stored, 4 ) );
+			if ( false === $data || ! str_contains( $data, '::' ) ) {
+				return $stored;
+			}
+			[ $iv, $enc ] = explode( '::', $data, 2 );
+			$key   = hash( 'sha256', AUTH_KEY, true );
+			$plain = openssl_decrypt( $enc, self::CIPHER_CBC, $key, 0, $iv );
+			return false !== $plain ? $plain : $stored;
+		}
+
+		return $stored;
 	}
 
 	public function __construct() {

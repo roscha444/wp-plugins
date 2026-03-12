@@ -27,10 +27,7 @@
  * This plugin is developed and sold by Robin Schumacher / SRK Hosting.
  * While the source code is licensed under GPL-2.0-or-later, purchasing
  * a license grants you access to updates, support, and future releases.
- * Unauthorized commercial redistribution without the author's consent
- * is not permitted. The name "SRK SMTP Mailer" and associated branding
- * are trademarks of Robin Schumacher / SRK Hosting and may not be used
- * without written permission.
+ * Updates, support and new releases require an active license.
  */
 
 defined( 'ABSPATH' ) || exit;

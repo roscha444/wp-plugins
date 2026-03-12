@@ -90,12 +90,14 @@ if ( ! defined( 'DISALLOW_FILE_EDIT' ) ) {
 
 // ── Admin Settings Page ──
 add_action( 'admin_menu', function () {
-	add_options_page(
+	add_menu_page(
 		'SRK Security',
 		'SRK Security',
 		'manage_options',
 		'srk-security',
-		'srk_sec_render_page'
+		'srk_sec_render_page',
+		'dashicons-shield',
+		81
 	);
 } );
 

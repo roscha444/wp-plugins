@@ -4,20 +4,22 @@ WordPress-Plugin zur SMTP-Konfiguration. Ersetzt den Standard-Mailversand (`wp_m
 
 ## Funktionen
 
-- **SMTP-Konfiguration** im Admin-Bereich (Einstellungen > SRK SMTP): Host, Port, Verschlüsselung (TLS/SSL), Benutzername, Passwort, Absender
-- **Connection-Test** per Klick direkt aus den Einstellungen
-- **E-Mail-Log** mit Typ (contact, quote, system, general), Betreff und Status — keine personenbezogenen Daten
-
-## Implementierung
-
-- Nutzt den WordPress-Hook `phpmailer_init`, um PHPMailer auf SMTP umzukonfigurieren
-- Connection-Test über AJAX mit direktem `smtpConnect()` gegen den konfigurierten Server
-- Log-Tabelle (`wp_srk_smtp_log`) wird bei Plugin-Aktivierung angelegt
-- Logging über die WordPress-Hooks `wp_mail_succeeded` und `wp_mail_failed`
-- Mail-Typ wird automatisch anhand des Betreffs erkannt (Kontaktanfrage, Hosting-Anfrage, System etc.)
-- Passwort wird nur überschrieben, wenn ein neues eingegeben wird
+- **SMTP-Konfiguration** im Admin-Bereich: Host, Port, Verschlüsselung (TLS/SSL), Benutzername, Passwort, Absender
+- **Passwort-Verschlüsselung** — AES-256-CBC mit AUTH_KEY, kein Klartext in der Datenbank
+- **Self-Signed Zertifikate** — opt-in Unterstützung für selbstsignierte SSL-Zertifikate
+- **Connection-Test** — 3-stufig: DNS-Auflösung, Socket-Check, SMTP-Authentifizierung mit Debug-Output
+- **Test-E-Mail** — Versand an frei wählbare Empfänger-Adresse direkt aus dem Admin
+- **E-Mail-Log** — Typ, Betreff, Status und Fehlermeldung, abschaltbar
+- **Rate-Limiting** — global pro Stunde und pro Tag, plus pro IP-Adresse pro Stunde
+- **DSGVO-konform** — IP-Adressen werden als HMAC-SHA256-Hash gespeichert, keine Klartexte
+- **Reverse-Proxy-Support** — erkennt echte Client-IP hinter Cloudflare/nginx via X-Forwarded-For
+- **Statistik-Dashboard** — Gesendet/Fehlgeschlagen der letzten 24 Stunden und 30 Tage mit Tageslimit-Anzeige
+- **Unabhängige Architektur** — Rate-Limiting und Statistik arbeiten unabhängig vom Log (eigene Tabelle `wp_srk_smtp_rate`)
+- **Header-Injection-Schutz** — Newlines werden aus Subject, To und allen Custom-Headern gestrippt
+- **Auto-Tabellenerstellung** — neue Tabellen werden automatisch angelegt, kein manuelles Reaktivieren nötig
 
 ## Anforderungen
 
 - WordPress 6.3+
 - PHP 8.0+
+- OpenSSL-Erweiterung (für Passwort-Verschlüsselung)

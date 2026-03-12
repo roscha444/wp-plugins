@@ -349,7 +349,11 @@ final class SRK_Migration {
 			if ( $item->isDir() ) {
 				$zip->addEmptyDir( $entry );
 			} else {
-				$zip->addFile( $real_path, $entry );
+				// Read content immediately — addFile() defers reads and fails in sandboxed environments.
+				$content = file_get_contents( $real_path );
+				if ( $content !== false ) {
+					$zip->addFromString( $entry, $content );
+				}
 			}
 		}
 	}

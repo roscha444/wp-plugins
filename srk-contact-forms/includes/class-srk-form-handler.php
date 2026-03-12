@@ -33,6 +33,15 @@ class SRK_Form_Handler {
 		// Antispam checks.
 		self::check_antispam();
 
+		// IP-based rate limiting.
+		$ip = $_SERVER['REMOTE_ADDR'] ?? '';
+		$transient_key = 'srk_cf_ip_' . md5( $ip );
+		$submissions = (int) get_transient( $transient_key );
+		if ( $submissions >= 5 ) {
+			wp_send_json_error( 'Zu viele Anfragen. Bitte versuchen Sie es in einigen Minuten erneut.' );
+		}
+		set_transient( $transient_key, $submissions + 1, 5 * MINUTE_IN_SECONDS );
+
 		// Validate privacy consent.
 		if ( 'yes' !== sanitize_text_field( $_POST['srk_privacy'] ?? '' ) ) {
 			wp_send_json_error( 'Bitte stimmen Sie der Datenschutzerklärung zu.' );
@@ -49,6 +58,10 @@ class SRK_Form_Handler {
 
 			if ( ! empty( $field['required'] ) && '' === $value ) {
 				wp_send_json_error( 'Bitte füllen Sie alle Pflichtfelder aus.' );
+			}
+
+			if ( 'select' === $field['type'] && ! empty( $field['options'] ) && ! array_key_exists( $value, $field['options'] ) ) {
+				wp_send_json_error( 'Ungültige Auswahl für "' . $field['label'] . '".' );
 			}
 
 			// Strip URLs from non-URL fields to prevent phishing links.

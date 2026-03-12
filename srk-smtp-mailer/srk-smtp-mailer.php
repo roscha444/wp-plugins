@@ -50,14 +50,18 @@ add_action( 'plugins_loaded', function () {
 	SRK_SMTP_Logger::init();
 } );
 
+// Increment transient-based rate counters on successful send.
+add_action( 'wp_mail_succeeded', function () {
+	$count_hour = (int) get_transient( 'srk_smtp_count_hour' );
+	set_transient( 'srk_smtp_count_hour', $count_hour + 1, HOUR_IN_SECONDS );
+
+	$count_day = (int) get_transient( 'srk_smtp_count_day' );
+	set_transient( 'srk_smtp_count_day', $count_day + 1, DAY_IN_SECONDS );
+} );
+
 // Rate limiting: block wp_mail when hourly or daily limit is exceeded.
 add_filter( 'pre_wp_mail', function ( $null, $atts ) {
 	$opts = get_option( 'srk_smtp_options', [] );
-
-	// Rate limiting requires logging to be enabled.
-	if ( isset( $opts['enable_log'] ) && ! $opts['enable_log'] ) {
-		return null;
-	}
 
 	$limit_hour = (int) ( $opts['rate_limit_hour'] ?? 30 );
 	$limit_day  = (int) ( $opts['rate_limit_day'] ?? 100 );
@@ -67,24 +71,30 @@ add_filter( 'pre_wp_mail', function ( $null, $atts ) {
 		return null;
 	}
 
-	global $wpdb;
-	$table = $wpdb->prefix . 'srk_smtp_log';
+	$logging_enabled = ! isset( $opts['enable_log'] ) || $opts['enable_log'];
 
 	// Check hourly limit.
 	if ( $limit_hour > 0 ) {
-		$count_hour = (int) $wpdb->get_var( $wpdb->prepare(
-			"SELECT COUNT(*) FROM {$table} WHERE status = 'sent' AND sent_at >= %s",
-			gmdate( 'Y-m-d H:i:s', time() - HOUR_IN_SECONDS )
-		) );
+		if ( $logging_enabled ) {
+			global $wpdb;
+			$table      = $wpdb->prefix . 'srk_smtp_log';
+			$count_hour = (int) $wpdb->get_var( $wpdb->prepare(
+				"SELECT COUNT(*) FROM {$table} WHERE status = 'sent' AND sent_at >= %s",
+				gmdate( 'Y-m-d H:i:s', time() - HOUR_IN_SECONDS )
+			) );
+		} else {
+			$count_hour = (int) get_transient( 'srk_smtp_count_hour' );
+		}
 
 		if ( $count_hour >= $limit_hour ) {
-			// Log the blocked email as failed.
-			$wpdb->insert( $table, [
-				'mail_type' => 'general',
-				'subject'   => mb_substr( $atts['subject'] ?? '', 0, 255 ),
-				'status'    => 'failed',
-				'error_msg' => "Rate-Limit erreicht: {$count_hour}/{$limit_hour} E-Mails pro Stunde.",
-			], [ '%s', '%s', '%s', '%s' ] );
+			if ( $logging_enabled ) {
+				$wpdb->insert( $table, [
+					'mail_type' => 'general',
+					'subject'   => mb_substr( $atts['subject'] ?? '', 0, 255 ),
+					'status'    => 'failed',
+					'error_msg' => "Rate-Limit erreicht: {$count_hour}/{$limit_hour} E-Mails pro Stunde.",
+				], [ '%s', '%s', '%s', '%s' ] );
+			}
 
 			return false;
 		}
@@ -92,18 +102,26 @@ add_filter( 'pre_wp_mail', function ( $null, $atts ) {
 
 	// Check daily limit.
 	if ( $limit_day > 0 ) {
-		$count_day = (int) $wpdb->get_var( $wpdb->prepare(
-			"SELECT COUNT(*) FROM {$table} WHERE status = 'sent' AND sent_at >= %s",
-			gmdate( 'Y-m-d H:i:s', time() - DAY_IN_SECONDS )
-		) );
+		if ( $logging_enabled ) {
+			global $wpdb;
+			$table     = $wpdb->prefix . 'srk_smtp_log';
+			$count_day = (int) $wpdb->get_var( $wpdb->prepare(
+				"SELECT COUNT(*) FROM {$table} WHERE status = 'sent' AND sent_at >= %s",
+				gmdate( 'Y-m-d H:i:s', time() - DAY_IN_SECONDS )
+			) );
+		} else {
+			$count_day = (int) get_transient( 'srk_smtp_count_day' );
+		}
 
 		if ( $count_day >= $limit_day ) {
-			$wpdb->insert( $table, [
-				'mail_type' => 'general',
-				'subject'   => mb_substr( $atts['subject'] ?? '', 0, 255 ),
-				'status'    => 'failed',
-				'error_msg' => "Rate-Limit erreicht: {$count_day}/{$limit_day} E-Mails pro Tag.",
-			], [ '%s', '%s', '%s', '%s' ] );
+			if ( $logging_enabled ) {
+				$wpdb->insert( $table, [
+					'mail_type' => 'general',
+					'subject'   => mb_substr( $atts['subject'] ?? '', 0, 255 ),
+					'status'    => 'failed',
+					'error_msg' => "Rate-Limit erreicht: {$count_day}/{$limit_day} E-Mails pro Tag.",
+				], [ '%s', '%s', '%s', '%s' ] );
+			}
 
 			return false;
 		}

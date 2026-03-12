@@ -53,7 +53,7 @@ class SRK_Form_Admin {
 	}
 
 	public function render_page(): void {
-		$action = $_GET['action'] ?? 'list';
+		$action = sanitize_key( $_GET['action'] ?? 'list' );
 
 		switch ( $action ) {
 			case 'edit':

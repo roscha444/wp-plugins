@@ -86,8 +86,10 @@ class SRK_SMTP_Logger {
 
 		global $wpdb;
 
+		$table = $wpdb->prefix . 'srk_smtp_log';
+
 		$wpdb->insert(
-			$wpdb->prefix . 'srk_smtp_log',
+			$table,
 			[
 				'mail_type' => self::detect_type( $subject ),
 				'subject'   => mb_substr( $subject, 0, 255 ),
@@ -96,5 +98,13 @@ class SRK_SMTP_Logger {
 			],
 			[ '%s', '%s', '%s', '%s' ]
 		);
+
+		// Probabilistic cleanup: delete entries older than 90 days.
+		if ( wp_rand( 1, 100 ) === 1 ) {
+			$wpdb->query( $wpdb->prepare(
+				"DELETE FROM {$table} WHERE sent_at < %s",
+				gmdate( 'Y-m-d H:i:s', strtotime( '-90 days' ) )
+			) );
+		}
 	}
 }

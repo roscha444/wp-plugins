@@ -169,6 +169,10 @@ class SRK_SMTP_Settings {
 			<pre id="srk-smtp-test-result" style="margin-top:10px;padding:12px 16px;border-radius:6px;font-size:13px;line-height:1.6;display:none;max-width:700px;white-space:pre-wrap;word-break:break-word;"></pre>
 
 			<hr>
+			<h2>Statistik</h2>
+			<?php $this->render_stats(); ?>
+
+			<hr>
 			<h2>E-Mail-Log</h2>
 			<?php $this->render_log_table(); ?>
 			<?php
@@ -316,5 +320,73 @@ class SRK_SMTP_Settings {
 		}
 
 		echo '</tbody></table>';
+	}
+
+	private function render_stats(): void {
+		global $wpdb;
+		$table = $wpdb->prefix . 'srk_smtp_log';
+
+		if ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) ) !== $table ) {
+			echo '<p>Log-Tabelle nicht vorhanden.</p>';
+			return;
+		}
+
+		$now = current_time( 'mysql', true );
+
+		$sent_24h = (int) $wpdb->get_var( $wpdb->prepare(
+			"SELECT COUNT(*) FROM {$table} WHERE status = 'sent' AND sent_at >= %s",
+			gmdate( 'Y-m-d H:i:s', time() - DAY_IN_SECONDS )
+		) );
+
+		$failed_24h = (int) $wpdb->get_var( $wpdb->prepare(
+			"SELECT COUNT(*) FROM {$table} WHERE status = 'failed' AND sent_at >= %s",
+			gmdate( 'Y-m-d H:i:s', time() - DAY_IN_SECONDS )
+		) );
+
+		$sent_30d = (int) $wpdb->get_var( $wpdb->prepare(
+			"SELECT COUNT(*) FROM {$table} WHERE status = 'sent' AND sent_at >= %s",
+			gmdate( 'Y-m-d H:i:s', time() - 30 * DAY_IN_SECONDS )
+		) );
+
+		$failed_30d = (int) $wpdb->get_var( $wpdb->prepare(
+			"SELECT COUNT(*) FROM {$table} WHERE status = 'failed' AND sent_at >= %s",
+			gmdate( 'Y-m-d H:i:s', time() - 30 * DAY_IN_SECONDS )
+		) );
+
+		$opts       = get_option( $this->option_key, [] );
+		$limit_hour = (int) ( $opts['rate_limit_hour'] ?? 30 );
+		$limit_day  = (int) ( $opts['rate_limit_day'] ?? 100 );
+
+		echo '<div style="display:flex;gap:1rem;flex-wrap:wrap;margin-top:0.5rem;">';
+
+		$this->render_stat_card( 'Letzte 24 Stunden', $sent_24h, $failed_24h, $limit_day ? $limit_day : null );
+		$this->render_stat_card( 'Letzte 30 Tage', $sent_30d, $failed_30d, null );
+
+		echo '</div>';
+	}
+
+	private function render_stat_card( string $label, int $sent, int $failed, ?int $limit ): void {
+		$total    = $sent + $failed;
+		$pct_ok   = $total > 0 ? round( $sent / $total * 100 ) : 0;
+		$bar_color = $failed > 0 ? '#dc2626' : '#16a34a';
+
+		echo '<div style="background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:1rem 1.25rem;min-width:200px;flex:1;max-width:300px;">';
+		echo '<div style="font-size:12px;color:#64748b;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.5rem;">' . esc_html( $label ) . '</div>';
+		echo '<div style="font-size:28px;font-weight:700;color:#0f172a;line-height:1;">' . esc_html( $sent ) . '</div>';
+		echo '<div style="font-size:12px;color:#64748b;margin-top:0.25rem;">gesendet</div>';
+
+		if ( $failed > 0 ) {
+			echo '<div style="font-size:12px;color:#dc2626;margin-top:0.25rem;font-weight:600;">' . esc_html( $failed ) . ' fehlgeschlagen</div>';
+		}
+
+		if ( $limit ) {
+			$usage = $limit > 0 ? min( 100, round( $sent / $limit * 100 ) ) : 0;
+			echo '<div style="margin-top:0.5rem;background:#e2e8f0;border-radius:4px;height:6px;overflow:hidden;">';
+			echo '<div style="width:' . esc_attr( $usage ) . '%;height:100%;background:' . ( $usage >= 90 ? '#dc2626' : '#16a34a' ) . ';border-radius:4px;transition:width 0.3s;"></div>';
+			echo '</div>';
+			echo '<div style="font-size:11px;color:#94a3b8;margin-top:0.25rem;">' . esc_html( $sent ) . ' / ' . esc_html( $limit ) . ' Tageslimit</div>';
+		}
+
+		echo '</div>';
 	}
 }

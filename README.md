@@ -8,7 +8,7 @@ WordPress-Plugins entwickelt von [Robin Schumacher / SRK Hosting](https://srk-ho
 |---|---|
 | [SRK SMTP Mailer](./srk-smtp-mailer/) | SMTP-Konfiguration, Connection-Test, E-Mail-Log, Rate-Limiting (global + pro IP) und Statistik |
 | [SRK Contact Forms](./srk-contact-forms/) | Dynamische Kontaktformulare per Shortcode mit unsichtbarem Spam-Schutz |
-| [SRK Security](./srk-security/) | WordPress-Hardening: Security Headers, XML-RPC, Enumeration-Schutz, Login-Schutz |
+| [SRK Security](./srk-security/) | WordPress-Hardening: Strict CSP mit Nonce, Security Headers, XML-RPC, Enumeration-Schutz, Login-Schutz |
 
 ## Anforderungen
 

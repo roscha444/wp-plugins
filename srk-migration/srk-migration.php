@@ -55,6 +55,14 @@ final class SRK_Migration {
 		'permalink_structure',
 	];
 
+	/** Option keys that contain sensitive data and must never be exported. */
+	private array $sensitive_options = [
+		'srk_smtp_options',
+	];
+
+	/** Keys to strip from option values (e.g. password fields inside arrays). */
+	private array $sensitive_keys = [ 'password', 'passwd', 'pass', 'secret', 'token', 'api_key' ];
+
 	/** Transient key for import results. */
 	private const RESULT_TRANSIENT = 'srk_migration_result';
 
@@ -252,6 +260,7 @@ final class SRK_Migration {
 
 	/**
 	 * Export options matching configured prefixes + core options.
+	 * Sensitive options (passwords, secrets, tokens) are excluded.
 	 */
 	private function export_options(): array {
 		global $wpdb;
@@ -259,6 +268,9 @@ final class SRK_Migration {
 
 		// Core options.
 		foreach ( $this->core_options as $key ) {
+			if ( in_array( $key, $this->sensitive_options, true ) ) {
+				continue;
+			}
 			$options[ $key ] = get_option( $key );
 		}
 
@@ -272,11 +284,33 @@ final class SRK_Migration {
 				)
 			);
 			foreach ( $rows as $row ) {
-				$options[ $row->option_name ] = maybe_unserialize( $row->option_value );
+				if ( in_array( $row->option_name, $this->sensitive_options, true ) ) {
+					continue;
+				}
+				$value = maybe_unserialize( $row->option_value );
+				$options[ $row->option_name ] = $this->strip_sensitive_keys( $value );
 			}
 		}
 
 		return $options;
+	}
+
+	/**
+	 * Recursively strip sensitive keys from arrays.
+	 */
+	private function strip_sensitive_keys( mixed $value ): mixed {
+		if ( ! is_array( $value ) ) {
+			return $value;
+		}
+		foreach ( $this->sensitive_keys as $key ) {
+			unset( $value[ $key ] );
+		}
+		foreach ( $value as $k => $v ) {
+			if ( is_array( $v ) ) {
+				$value[ $k ] = $this->strip_sensitive_keys( $v );
+			}
+		}
+		return $value;
 	}
 
 	/* ══════════════════════════════════════════════

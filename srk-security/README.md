@@ -8,6 +8,7 @@ WordPress-Hardening-Plugin mit strikter Content Security Policy (CSP), Security 
 |---|---|
 | Content Security Policy (CSP) | Strict CSP mit per-Request Nonce — kein `unsafe-inline` nötig |
 | Domain-Whitelist | Externe Domains über Admin-UI konfigurierbar |
+| HTTPS erzwungen | `upgrade-insecure-requests` wandelt HTTP automatisch in HTTPS um |
 | Security Headers | X-Content-Type-Options, X-Frame-Options, Referrer-Policy, Permissions-Policy |
 | XML-RPC deaktiviert | Blockiert Brute-Force über `system.multicall` |
 | Pingbacks deaktiviert | Verhindert DDoS-Amplification |
@@ -16,7 +17,7 @@ WordPress-Hardening-Plugin mit strikter Content Security Policy (CSP), Security 
 | Login-Fehlermeldungen generisch | Verrät nicht, ob ein Benutzername existiert |
 | Theme/Plugin-Editor deaktiviert | `DISALLOW_FILE_EDIT` |
 
-## CSP-System (v1.1.0)
+## CSP-System (v1.3.0)
 
 Die CSP setzt auf einen per-Request Nonce statt `unsafe-inline`:
 
@@ -24,6 +25,7 @@ Die CSP setzt auf einen per-Request Nonce statt `unsafe-inline`:
 - **Style-Nonce**: Automatisch für alle `<style>`-Blöcke und `<link>`-Stylesheets
 - **`style-src-attr 'unsafe-inline'`**: Erlaubt inline `style=""`-Attribute (kein XSS-Risiko, aber von WordPress/Plugins überall genutzt)
 - **Output Buffering**: Fängt `<script>` und `<style>` Tags in `wp_head`/`wp_footer` ab, die nicht durch WordPress-Filter laufen (z.B. `wp_localize_script`)
+- **`upgrade-insecure-requests`**: Erzwingt HTTPS für alle Ressourcen (default: aktiv, deaktivierbar für Dev-Umgebungen ohne SSL)
 - **Admin-Bereich ausgenommen**: CSP greift nur im Frontend
 
 ### Nonce-Injection
@@ -38,7 +40,15 @@ Die CSP setzt auf einen per-Request Nonce statt `unsafe-inline`:
 
 ## Admin-Dashboard
 
-Unter dem Menüpunkt "SRK Security" zeigt eine Übersicht alle aktiven Maßnahmen mit Status-Haken. CSP und Domain-Whitelist sind dort konfigurierbar.
+Unter dem Menüpunkt "SRK Security" zeigt eine Übersicht alle aktiven Maßnahmen mit Status-Haken.
+
+### Konfigurierbare Einstellungen
+
+| Einstellung | Default | Beschreibung |
+|---|---|---|
+| CSP aktivieren | An | Strict CSP mit Nonce |
+| Domain-Whitelist | Leer | Externe Domains für script-src, style-src, img-src, font-src, connect-src |
+| HTTPS erzwingen | An | `upgrade-insecure-requests` — auf Dev-Umgebungen ohne SSL deaktivieren |
 
 ## Anforderungen
 

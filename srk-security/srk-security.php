@@ -2,7 +2,7 @@
 /**
  * Plugin Name: SRK Security
  * Description: WordPress-Hardening: CSP mit Nonce, Security Headers, XML-RPC, Pingbacks, User-Enumeration, Login-Schutz und mehr.
- * Version: 1.2.0
+ * Version: 1.2.1
  * Author: Robin Schumacher
  * Author URI: https://srk-hosting.de
  * Text Domain: srk-security
@@ -32,7 +32,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'SRK_SEC_VERSION', '1.2.0' );
+define( 'SRK_SEC_VERSION', '1.2.1' );
 
 // ── 1. Remove WordPress Version Disclosure ──
 remove_action( 'wp_head', 'wp_generator' );
@@ -177,28 +177,6 @@ class SRK_CSP {
 		add_action( 'wp_footer', [ __CLASS__, 'ob_start' ], 0 );
 		add_action( 'wp_footer', [ __CLASS__, 'ob_flush' ], PHP_INT_MAX );
 
-		// OB for the full page body (catches shortcode/block inline tags)
-		add_filter( 'template_include', [ __CLASS__, 'ob_wrap_template' ], PHP_INT_MAX );
-	}
-
-	/**
-	 * Wrap the entire template output in OB to catch body inline tags.
-	 */
-	public static function ob_wrap_template( string $template ): string {
-		ob_start( [ __CLASS__, 'inject_nonces_into_html' ] );
-		return $template;
-	}
-
-	/**
-	 * OB callback: inject nonces into all <script>/<style> tags in the full page HTML.
-	 */
-	public static function inject_nonces_into_html( string $html ): string {
-		if ( empty( $html ) ) {
-			return $html;
-		}
-		$nonce = esc_attr( self::nonce() );
-		$html  = self::add_nonce_to_tags( $html, $nonce );
-		return $html;
 	}
 
 	/**

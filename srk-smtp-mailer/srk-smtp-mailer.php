@@ -41,8 +41,17 @@ define( 'SRK_SMTP_PATH', plugin_dir_path( __FILE__ ) );
 require_once SRK_SMTP_PATH . 'includes/class-srk-smtp-settings.php';
 require_once SRK_SMTP_PATH . 'includes/class-srk-smtp-logger.php';
 
-// Install log table on activation.
+// Install tables on activation.
 register_activation_hook( __FILE__, [ 'SRK_SMTP_Logger', 'create_table' ] );
+
+// Auto-create tables if missing (e.g. after update without reactivation).
+add_action( 'admin_init', function () {
+	$db_version = get_option( 'srk_smtp_db_version', '0' );
+	if ( version_compare( $db_version, '1.1.0', '<' ) ) {
+		SRK_SMTP_Logger::create_table();
+		update_option( 'srk_smtp_db_version', '1.1.0' );
+	}
+} );
 
 // Boot plugin.
 add_action( 'plugins_loaded', function () {

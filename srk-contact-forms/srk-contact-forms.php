@@ -8,6 +8,29 @@
  * Text Domain: srk-contact-forms
  * Requires at least: 6.3
  * Requires PHP: 8.0
+ * License: GPL-2.0-or-later
+ * License URI: https://www.gnu.org/licenses/gpl-2.0.html
+ *
+ * Copyright (C) 2016–2026 Robin Schumacher / SRK Hosting (https://srk-hosting.de)
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU General Public License for more details.
+ *
+ * COMMERCIAL NOTICE:
+ * This plugin is developed and sold by Robin Schumacher / SRK Hosting.
+ * While the source code is licensed under GPL-2.0-or-later, purchasing
+ * a license grants you access to updates, support, and future releases.
+ * Unauthorized commercial redistribution without the author's consent
+ * is not permitted. The name "SRK Contact Forms" and associated branding
+ * are trademarks of Robin Schumacher / SRK Hosting and may not be used
+ * without written permission.
  */
 
 defined( 'ABSPATH' ) || exit;

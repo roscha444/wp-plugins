@@ -201,9 +201,15 @@ final class SRK_Migration {
 		$filename = 'srk-migration-' . gmdate( 'Y-m-d-His' ) . '.zip';
 		$filesize = filesize( $tmp_file );
 
+		// Clean all output buffers to prevent corrupted download.
+		while ( ob_get_level() ) {
+			ob_end_clean();
+		}
+
 		header( 'Content-Type: application/zip' );
 		header( 'Content-Disposition: attachment; filename="' . $filename . '"' );
 		header( 'Content-Length: ' . $filesize );
+		header( 'Cache-Control: no-store, no-cache, must-revalidate' );
 		header( 'Pragma: no-cache' );
 
 		readfile( $tmp_file );
@@ -604,14 +610,33 @@ final class SRK_Migration {
 				<tr>
 					<th scope="row">Seiteninhalte</th>
 					<td>
-						<label>
+						<label style="display: block; margin-bottom: 8px;">
 							<input type="checkbox" name="export_pages" value="1" checked>
-							Alle veröffentlichten Seiten exportieren
+							Veröffentlichte Seiten exportieren
 						</label>
 						<?php
-						$page_count = wp_count_posts( 'page' )->publish;
-						echo '<p class="description">' . esc_html( $page_count ) . ' Seiten vorhanden</p>';
+						$pages = get_pages( [ 'post_status' => 'publish', 'sort_column' => 'menu_order' ] );
+						if ( $pages ) :
 						?>
+						<fieldset style="margin-left: 24px;">
+							<?php foreach ( $pages as $p ) :
+								$depth  = 0;
+								$parent = $p->post_parent;
+								while ( $parent ) {
+									$depth++;
+									$parent_obj = get_post( $parent );
+									$parent     = $parent_obj ? $parent_obj->post_parent : 0;
+								}
+								$indent = str_repeat( '— ', $depth );
+							?>
+								<label style="display: block; margin-bottom: 2px;">
+									<?php echo esc_html( $indent . $p->post_title ); ?>
+									<span class="description">(<?php echo esc_html( '/' . $p->post_name . '/' ); ?>)</span>
+								</label>
+							<?php endforeach; ?>
+						</fieldset>
+						<p class="description"><?php echo count( $pages ); ?> Seiten</p>
+						<?php endif; ?>
 					</td>
 				</tr>
 

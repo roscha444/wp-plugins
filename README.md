@@ -1,9 +1,22 @@
 # SRK WordPress Plugins
 
-Eigene WordPress-Plugins für [srk-hosting.de](https://srk-hosting.de).
+WordPress-Plugins entwickelt von [Robin Schumacher / SRK Hosting](https://srk-hosting.de) — für Kunden und eigene Webseiten.
+
+## Plugins
 
 | Plugin | Beschreibung |
 |---|---|
-| [srk-smtp-mailer](./srk-smtp-mailer/) | SMTP-Konfiguration, Connection-Test, E-Mail-Log, Rate-Limiting und Statistik |
-| [srk-contact-forms](./srk-contact-forms/) | Dynamische Kontaktformulare per Shortcode mit Spam-Schutz |
-| [srk-security](./srk-security/) | WordPress-Hardening: Security Headers, XML-RPC, Enumeration-Schutz und mehr |
+| [SRK SMTP Mailer](./srk-smtp-mailer/) | SMTP-Konfiguration, Connection-Test, E-Mail-Log, Rate-Limiting (global + pro IP) und Statistik |
+| [SRK Contact Forms](./srk-contact-forms/) | Dynamische Kontaktformulare per Shortcode mit unsichtbarem Spam-Schutz |
+| [SRK Security](./srk-security/) | WordPress-Hardening: Security Headers, XML-RPC, Enumeration-Schutz, Login-Schutz |
+
+## Anforderungen
+
+- WordPress 6.3+
+- PHP 8.0+
+
+## Lizenz
+
+GPL-2.0-or-later — siehe jeweilige Plugin-Datei für Details.
+
+Entwickelt und vertrieben von Robin Schumacher / SRK Hosting. Nicht autorisierte kommerzielle Weiterverbreitung ist nicht gestattet.

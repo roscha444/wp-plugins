@@ -72,6 +72,7 @@ final class SRK_Migration {
 	public function __construct() {
 		add_action( 'admin_menu', [ $this, 'admin_menu' ] );
 		add_action( 'admin_init', [ $this, 'handle_request' ] );
+		add_action( 'wp_ajax_srk_migration_download', [ $this, 'ajax_download' ] );
 		add_action( 'srk_migration_cleanup', [ $this, 'cleanup_exports' ] );
 
 		// Schedule cleanup cron if not exists.
@@ -175,11 +176,6 @@ final class SRK_Migration {
 			$this->handle_import();
 		}
 
-		if ( isset( $_GET['srk_download'] ) ) {
-			check_admin_referer( 'srk_migration_download' );
-			$this->stream_download( sanitize_file_name( $_GET['srk_download'] ) );
-		}
-
 		if ( isset( $_POST['srk_migration_delete'] ) ) {
 			check_admin_referer( 'srk_migration_delete' );
 			$this->delete_export( sanitize_file_name( $_POST['srk_migration_delete'] ) );
@@ -187,34 +183,41 @@ final class SRK_Migration {
 	}
 
 	/**
-	 * Create a temporary download script outside WordPress and redirect to it.
-	 * This bypasses WordPress/Studio output handling entirely.
+	 * AJAX handler — streams ZIP file as download via admin-ajax.php.
 	 */
-	private function stream_download( string $filename ): void {
-		$file = $this->get_export_dir() . '/' . $filename;
+	public function ajax_download(): void {
+		check_ajax_referer( 'srk_migration_download', '_wpnonce' );
 
-		if ( ! file_exists( $file ) ) {
-			wp_die( 'Export-Datei nicht gefunden.' );
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_die( 'Keine Berechtigung.', 403 );
 		}
 
-		// Create a one-time download script in the WordPress root.
-		$token   = wp_generate_password( 40, false );
-		$dl_file = ABSPATH . 'srk-dl-' . $token . '.php';
+		$filename = isset( $_GET['file'] ) ? sanitize_file_name( $_GET['file'] ) : '';
+		$file     = $this->get_export_dir() . '/' . $filename;
 
-		$php = '<?php' . "\n"
-			. 'if ( empty( $_GET["t"] ) || $_GET["t"] !== ' . var_export( $token, true ) . ' ) { http_response_code(403); exit; }' . "\n"
-			. '$f = ' . var_export( $file, true ) . ';' . "\n"
-			. 'if ( ! file_exists( $f ) ) { http_response_code(404); exit; }' . "\n"
-			. 'header( "Content-Type: application/zip" );' . "\n"
-			. 'header( "Content-Disposition: attachment; filename=\"' . $filename . '\"" );' . "\n"
-			. 'header( "Content-Length: " . filesize( $f ) );' . "\n"
-			. 'header( "Cache-Control: no-store" );' . "\n"
-			. 'readfile( $f );' . "\n"
-			. '@unlink( __FILE__ );' . "\n";
+		if ( ! $filename || ! file_exists( $file ) ) {
+			wp_die( 'Export-Datei nicht gefunden.', 404 );
+		}
 
-		file_put_contents( $dl_file, $php );
+		$size = filesize( $file );
 
-		wp_redirect( site_url( '/srk-dl-' . $token . '.php?t=' . $token ) );
+		// Kill every output buffer WordPress/Studio may have opened.
+		while ( ob_get_level() ) {
+			ob_end_clean();
+		}
+
+		nocache_headers();
+		header( 'Content-Type: application/zip' );
+		header( 'Content-Disposition: attachment; filename="' . $filename . '"' );
+		header( 'Content-Length: ' . $size );
+
+		// Read in 8 KB chunks to keep memory low.
+		$fh = fopen( $file, 'rb' );
+		while ( ! feof( $fh ) ) {
+			echo fread( $fh, 8192 );
+			flush();
+		}
+		fclose( $fh );
 		exit;
 	}
 
@@ -695,7 +698,7 @@ final class SRK_Migration {
 					<tbody>
 						<?php foreach ( $exports as $export ) :
 							$dl_url = wp_nonce_url(
-								admin_url( 'admin.php?page=' . self::SLUG . '&srk_download=' . urlencode( $export['name'] ) ),
+								admin_url( 'admin-ajax.php?action=srk_migration_download&file=' . urlencode( $export['name'] ) ),
 								'srk_migration_download'
 							);
 							$age = time() - $export['time'];

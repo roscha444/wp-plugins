@@ -207,17 +207,13 @@ final class SRK_Migration {
 		}
 
 		nocache_headers();
-		header( 'Content-Type: application/zip' );
+		// application/octet-stream prevents Safari from auto-extracting the ZIP.
+		header( 'Content-Type: application/octet-stream' );
 		header( 'Content-Disposition: attachment; filename="' . $filename . '"' );
 		header( 'Content-Length: ' . $size );
+		header( 'X-Content-Type-Options: nosniff' );
 
-		// Read in 8 KB chunks to keep memory low.
-		$fh = fopen( $file, 'rb' );
-		while ( ! feof( $fh ) ) {
-			echo fread( $fh, 8192 );
-			flush();
-		}
-		fclose( $fh );
+		readfile( $file );
 		exit;
 	}
 

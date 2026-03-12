@@ -62,7 +62,9 @@ function srk_smtp_hash_ip(): string {
 	// Only trust X-Forwarded-For if REMOTE_ADDR is a known proxy.
 	$ip = $_SERVER['REMOTE_ADDR'] ?? '';
 
-	if ( ! empty( $_SERVER['HTTP_X_FORWARDED_FOR'] ) ) {
+	// Only trust X-Forwarded-For if REMOTE_ADDR is a known trusted proxy.
+	$trusted_proxies = apply_filters( 'srk_smtp_trusted_proxies', [ '127.0.0.1', '::1' ] );
+	if ( ! empty( $_SERVER['HTTP_X_FORWARDED_FOR'] ) && in_array( $ip, $trusted_proxies, true ) ) {
 		// X-Forwarded-For can contain: "client, proxy1, proxy2" — take the first.
 		$forwarded = explode( ',', $_SERVER['HTTP_X_FORWARDED_FOR'] );
 		$candidate = trim( $forwarded[0] );

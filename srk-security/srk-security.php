@@ -2,7 +2,7 @@
 /**
  * Plugin Name: SRK Security
  * Description: WordPress-Hardening: CSP mit Nonce, Security Headers, XML-RPC, Pingbacks, User-Enumeration, Login-Schutz und mehr.
- * Version: 1.1.0
+ * Version: 1.2.0
  * Author: Robin Schumacher
  * Author URI: https://srk-hosting.de
  * Text Domain: srk-security
@@ -32,7 +32,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'SRK_SEC_VERSION', '1.1.0' );
+define( 'SRK_SEC_VERSION', '1.2.0' );
 
 // ── 1. Remove WordPress Version Disclosure ──
 remove_action( 'wp_head', 'wp_generator' );
@@ -162,17 +162,43 @@ class SRK_CSP {
 		// Add nonce to enqueued script tags
 		add_filter( 'script_loader_tag', [ __CLASS__, 'add_nonce_to_script' ], 999, 2 );
 
-		// Add nonce to inline scripts
+		// Add nonce to inline scripts (wp_add_inline_script)
 		add_filter( 'wp_inline_script_attributes', [ __CLASS__, 'add_nonce_attr' ], 999 );
 
 		// Add nonce to enqueued style tags
 		add_filter( 'style_loader_tag', [ __CLASS__, 'add_nonce_to_style' ], 999, 2 );
 
-		// Capture and nonce inline styles via output buffering
+		// Add nonce to inline styles (wp_add_inline_style)
+		add_filter( 'wp_inline_style_attributes', [ __CLASS__, 'add_nonce_attr' ], 999 );
+
+		// OB for wp_head and wp_footer (catches remaining inline tags)
 		add_action( 'wp_head', [ __CLASS__, 'ob_start' ], 0 );
 		add_action( 'wp_head', [ __CLASS__, 'ob_flush' ], PHP_INT_MAX );
 		add_action( 'wp_footer', [ __CLASS__, 'ob_start' ], 0 );
 		add_action( 'wp_footer', [ __CLASS__, 'ob_flush' ], PHP_INT_MAX );
+
+		// OB for the full page body (catches shortcode/block inline tags)
+		add_filter( 'template_include', [ __CLASS__, 'ob_wrap_template' ], PHP_INT_MAX );
+	}
+
+	/**
+	 * Wrap the entire template output in OB to catch body inline tags.
+	 */
+	public static function ob_wrap_template( string $template ): string {
+		ob_start( [ __CLASS__, 'inject_nonces_into_html' ] );
+		return $template;
+	}
+
+	/**
+	 * OB callback: inject nonces into all <script>/<style> tags in the full page HTML.
+	 */
+	public static function inject_nonces_into_html( string $html ): string {
+		if ( empty( $html ) ) {
+			return $html;
+		}
+		$nonce = esc_attr( self::nonce() );
+		$html  = self::add_nonce_to_tags( $html, $nonce );
+		return $html;
 	}
 
 	/**
@@ -220,33 +246,30 @@ class SRK_CSP {
 		$html = ob_get_clean();
 		if ( ! empty( $html ) ) {
 			$nonce = esc_attr( self::nonce() );
-			// Add nonce to <style> tags that don't have one yet
-			$html = preg_replace_callback(
-				'#<style(\s[^>]*)?>(?!.*nonce=)#i',
-				function ( $matches ) use ( $nonce ) {
-					if ( str_contains( $matches[0], 'nonce=' ) ) {
-						return $matches[0];
-					}
-					$attrs = $matches[1] ?? '';
-					return '<style nonce="' . $nonce . '"' . $attrs . '>';
-				},
-				$html
-			);
-			// Add nonce to <script> tags that don't have one yet
-			// (catches wp_localize_script output and other inline scripts)
-			$html = preg_replace_callback(
-				'#<script(\s[^>]*)?>(?!.*nonce=)#i',
-				function ( $matches ) use ( $nonce ) {
-					if ( str_contains( $matches[0], 'nonce=' ) ) {
-						return $matches[0];
-					}
-					$attrs = $matches[1] ?? '';
-					return '<script nonce="' . $nonce . '"' . $attrs . '>';
-				},
-				$html
-			);
+			$html  = self::add_nonce_to_tags( $html, $nonce );
 			echo $html; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
 		}
+	}
+
+	/**
+	 * Add nonce to all <script> and <style> opening tags that don't already have one.
+	 */
+	private static function add_nonce_to_tags( string $html, string $nonce ): string {
+		// Match <style ...> and <script ...> opening tags, check attributes only
+		$html = preg_replace_callback(
+			'#<(style|script)(\s[^>]*)?(>)#i',
+			function ( $matches ) use ( $nonce ) {
+				$tag   = $matches[1];
+				$attrs = $matches[2] ?? '';
+				// Skip if nonce already present in attributes
+				if ( str_contains( $attrs, 'nonce=' ) ) {
+					return $matches[0];
+				}
+				return '<' . $tag . $attrs . ' nonce="' . $nonce . '">';
+			},
+			$html
+		);
+		return $html;
 	}
 }
 

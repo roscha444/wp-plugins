@@ -19,4 +19,4 @@ WordPress-Plugins entwickelt von [Robin Schumacher / SRK Hosting](https://srk-ho
 
 GPL-2.0-or-later — siehe jeweilige Plugin-Datei für Details.
 
-Entwickelt und vertrieben von Robin Schumacher / SRK Hosting. Nicht autorisierte kommerzielle Weiterverbreitung ist nicht gestattet.
+Entwickelt und vertrieben von Robin Schumacher / SRK Hosting. Updates, Support und neue Versionen erfordern eine aktive Lizenz. Der Name "SRK" und zugehörige Logos sind Marken von Robin Schumacher / SRK Hosting.

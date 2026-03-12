@@ -76,12 +76,32 @@ final class SRK_Migration {
 	 * ────────────────────────────────────────────── */
 
 	public function admin_menu(): void {
-		add_management_page(
+		add_menu_page(
 			'SRK Migration',
 			'SRK Migration',
 			'manage_options',
 			self::SLUG,
-			[ $this, 'render_admin_page' ]
+			[ $this, 'render_export_page' ],
+			'dashicons-migrate',
+			80
+		);
+
+		add_submenu_page(
+			self::SLUG,
+			'Export',
+			'Export',
+			'manage_options',
+			self::SLUG,
+			[ $this, 'render_export_page' ]
+		);
+
+		add_submenu_page(
+			self::SLUG,
+			'Import',
+			'Import',
+			'manage_options',
+			self::SLUG . '-import',
+			[ $this, 'render_import_page' ]
 		);
 	}
 
@@ -409,7 +429,7 @@ final class SRK_Migration {
 		flush_rewrite_rules();
 
 		$this->set_result( 'success', implode( "\n", $results ) );
-		wp_safe_redirect( admin_url( 'tools.php?page=' . self::SLUG . '&tab=import' ) );
+		wp_safe_redirect( admin_url( 'admin.php?page=' . self::SLUG . '-import' ) );
 		exit;
 	}
 
@@ -527,35 +547,12 @@ final class SRK_Migration {
 	 *  ADMIN PAGE
 	 * ══════════════════════════════════════════════ */
 
-	public function render_admin_page(): void {
-		$tab = isset( $_GET['tab'] ) ? sanitize_key( $_GET['tab'] ) : 'export';
-		$export_url = admin_url( 'tools.php?page=' . self::SLUG . '&tab=export' );
-		$import_url = admin_url( 'tools.php?page=' . self::SLUG . '&tab=import' );
+	public function render_export_page(): void {
 		?>
 		<div class="wrap">
-			<h1>SRK Migration</h1>
-
-			<nav class="nav-tab-wrapper">
-				<a href="<?php echo esc_url( $export_url ); ?>"
-				   class="nav-tab <?php echo $tab === 'export' ? 'nav-tab-active' : ''; ?>">Export</a>
-				<a href="<?php echo esc_url( $import_url ); ?>"
-				   class="nav-tab <?php echo $tab === 'import' ? 'nav-tab-active' : ''; ?>">Import</a>
-			</nav>
-
-			<div style="margin-top: 20px;">
-				<?php
-				if ( $tab === 'export' ) {
-					$this->render_export_tab();
-				} else {
-					$this->render_import_tab();
-				}
-				?>
-			</div>
-		</div>
-		<?php
-	}
-
-	private function render_export_tab(): void {
+			<h1>SRK Migration — Export</h1>
+			<p>Erstelle ein Migrations-Paket mit Theme, Plugins, Seiteninhalten und Einstellungen.</p>
+			<?php
 		$active_theme   = wp_get_theme();
 		$active_plugins = get_option( 'active_plugins', [] );
 		$all_plugins    = get_plugins();
@@ -644,13 +641,17 @@ final class SRK_Migration {
 			}.bind(this));
 		});
 		</script>
+		</div>
 		<?php
 	}
 
-	private function render_import_tab(): void {
+	public function render_import_page(): void {
 		$result    = $this->get_result();
 		$max_upload = size_format( wp_max_upload_size() );
 		?>
+		<div class="wrap">
+		<h1>SRK Migration — Import</h1>
+		<p>Lade ein Migrations-Paket hoch, um Theme, Plugins, Seiteninhalte und Einstellungen zu importieren.</p>
 
 		<?php if ( $result ) : ?>
 			<div class="notice notice-<?php echo $result['type'] === 'error' ? 'error' : 'success'; ?> is-dismissible">
@@ -686,6 +687,7 @@ final class SRK_Migration {
 				<li>Einstellungen werden direkt übernommen.</li>
 				<li>Dieses Plugin muss auf beiden Instanzen installiert sein.</li>
 			</ul>
+		</div>
 		</div>
 		<?php
 	}

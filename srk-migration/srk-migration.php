@@ -187,7 +187,8 @@ final class SRK_Migration {
 	}
 
 	/**
-	 * Stream a stored export ZIP to the admin user.
+	 * Create a temporary download script outside WordPress and redirect to it.
+	 * This bypasses WordPress/Studio output handling entirely.
 	 */
 	private function stream_download( string $filename ): void {
 		$file = $this->get_export_dir() . '/' . $filename;
@@ -196,19 +197,24 @@ final class SRK_Migration {
 			wp_die( 'Export-Datei nicht gefunden.' );
 		}
 
-		$size = filesize( $file );
+		// Create a one-time download script in the WordPress root.
+		$token   = wp_generate_password( 40, false );
+		$dl_file = ABSPATH . 'srk-dl-' . $token . '.php';
 
-		while ( ob_get_level() ) {
-			ob_end_clean();
-		}
+		$php = '<?php' . "\n"
+			. 'if ( empty( $_GET["t"] ) || $_GET["t"] !== ' . var_export( $token, true ) . ' ) { http_response_code(403); exit; }' . "\n"
+			. '$f = ' . var_export( $file, true ) . ';' . "\n"
+			. 'if ( ! file_exists( $f ) ) { http_response_code(404); exit; }' . "\n"
+			. 'header( "Content-Type: application/zip" );' . "\n"
+			. 'header( "Content-Disposition: attachment; filename=\"' . $filename . '\"" );' . "\n"
+			. 'header( "Content-Length: " . filesize( $f ) );' . "\n"
+			. 'header( "Cache-Control: no-store" );' . "\n"
+			. 'readfile( $f );' . "\n"
+			. '@unlink( __FILE__ );' . "\n";
 
-		header( 'Content-Type: application/octet-stream' );
-		header( 'Content-Disposition: attachment; filename="' . $filename . '"' );
-		header( 'Content-Length: ' . $size );
-		header( 'Content-Transfer-Encoding: binary' );
-		header( 'Cache-Control: no-store' );
+		file_put_contents( $dl_file, $php );
 
-		readfile( $file );
+		wp_redirect( site_url( '/srk-dl-' . $token . '.php?t=' . $token ) );
 		exit;
 	}
 

@@ -6,8 +6,19 @@ class SRK_Form_Admin {
 
 	public function __construct() {
 		add_action( 'admin_menu', [ $this, 'add_menu' ] );
+		add_action( 'admin_init', [ $this, 'register_settings' ] );
 		add_action( 'admin_init', [ $this, 'handle_save' ] );
 		add_action( 'admin_init', [ $this, 'handle_delete' ] );
+	}
+
+	public function register_settings(): void {
+		register_setting( 'srk_cf_options_group', 'srk_cf_options', [
+			'sanitize_callback' => function ( $input ) {
+				return [
+					'enable_antispam' => ! empty( $input['enable_antispam'] ),
+				];
+			},
+		] );
 	}
 
 	public function add_menu(): void {
@@ -101,6 +112,24 @@ class SRK_Form_Admin {
 		}
 
 		echo '</tbody></table>';
+
+		// Global settings.
+		$cf_opts = get_option( 'srk_cf_options', [] );
+		echo '<hr style="margin-top:2rem;">';
+		echo '<h2>Einstellungen</h2>';
+		echo '<form method="post" action="options.php">';
+		settings_fields( 'srk_cf_options_group' );
+		echo '<table class="form-table"><tr>';
+		echo '<th>Spam-Schutz</th>';
+		echo '<td><label>';
+		echo '<input type="checkbox" name="srk_cf_options[enable_antispam]" value="1"' . checked( $cf_opts['enable_antispam'] ?? true, true, false ) . '>';
+		echo ' Spam-Schutz aktivieren (Honeypot + Zeitprüfung + Token)';
+		echo '</label>';
+		echo '<p class="description">Unsichtbar für Nutzer. Blockiert automatisierte Bot-Einreichungen ohne CAPTCHA.</p>';
+		echo '</td></tr></table>';
+		submit_button( 'Einstellungen speichern' );
+		echo '</form>';
+
 		echo '</div>';
 	}
 

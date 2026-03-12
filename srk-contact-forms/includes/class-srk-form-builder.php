@@ -24,6 +24,8 @@ class SRK_Form_Builder {
 			<form class="srk-cf-form" data-form-id="<?php echo esc_attr( $this->form_id ); ?>" novalidate>
 				<?php wp_nonce_field( 'srk_cf_submit_' . $this->form_id, 'srk_cf_nonce' ); ?>
 
+				<?php $this->render_antispam(); ?>
+
 				<div class="srk-cf-grid">
 					<?php foreach ( $this->config['fields'] as $field ) : ?>
 						<?php $this->render_field( $field ); ?>
@@ -95,6 +97,25 @@ class SRK_Form_Builder {
 		echo '<div class="srk-cf-group srk-cf-full">';
 		echo '<div class="srk-cf-error" style="display:none;"></div>';
 		echo '</div>';
+	}
+
+	private function render_antispam(): void {
+		$opts = get_option( 'srk_cf_options', [] );
+		if ( isset( $opts['enable_antispam'] ) && ! $opts['enable_antispam'] ) {
+			return;
+		}
+
+		$ts = time();
+		$token = wp_hash( $this->form_id . '|' . $ts );
+
+		// Honeypot: invisible field — bots fill it, humans don't.
+		echo '<div style="position:absolute;left:-9999px;top:-9999px;" aria-hidden="true">';
+		echo '<input type="text" name="srk_cf_website" value="" tabindex="-1" autocomplete="off">';
+		echo '</div>';
+
+		// Timestamp for minimum time check.
+		echo '<input type="hidden" name="srk_cf_ts" value="' . esc_attr( $ts ) . '">';
+		echo '<input type="hidden" name="srk_cf_token" value="' . esc_attr( $token ) . '">';
 	}
 
 	private function render_submit(): void {

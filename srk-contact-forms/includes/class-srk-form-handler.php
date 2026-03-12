@@ -30,6 +30,9 @@ class SRK_Form_Handler {
 			wp_send_json_error( 'Formular nicht gefunden.' );
 		}
 
+		// Antispam checks.
+		self::check_antispam();
+
 		// Validate privacy consent.
 		if ( 'yes' !== sanitize_text_field( $_POST['srk_privacy'] ?? '' ) ) {
 			wp_send_json_error( 'Bitte stimmen Sie der Datenschutzerklärung zu.' );
@@ -87,6 +90,36 @@ class SRK_Form_Handler {
 			wp_send_json_success( $config['success_msg'] ?? 'Nachricht gesendet.' );
 		} else {
 			wp_send_json_error( 'Nachricht konnte nicht gesendet werden. Bitte versuchen Sie es später erneut.' );
+		}
+	}
+
+	private static function check_antispam(): void {
+		$opts = get_option( 'srk_cf_options', [] );
+		if ( isset( $opts['enable_antispam'] ) && ! $opts['enable_antispam'] ) {
+			return;
+		}
+
+		// Honeypot: must be empty.
+		if ( ! empty( $_POST['srk_cf_website'] ) ) {
+			wp_send_json_error( 'Spam erkannt.' );
+		}
+
+		// Timestamp: form must be open for at least 3 seconds.
+		$ts = (int) ( $_POST['srk_cf_ts'] ?? 0 );
+		if ( ! $ts || ( time() - $ts ) < 3 ) {
+			wp_send_json_error( 'Formular zu schnell abgesendet. Bitte versuchen Sie es erneut.' );
+		}
+
+		// Token: verify integrity (prevents replay with fake timestamps).
+		$form_id = sanitize_key( $_POST['form_id'] ?? '' );
+		$token   = $_POST['srk_cf_token'] ?? '';
+		if ( ! $token || $token !== wp_hash( $form_id . '|' . $ts ) ) {
+			wp_send_json_error( 'Sicherheitsprüfung fehlgeschlagen.' );
+		}
+
+		// Token age: reject if older than 1 hour (stale forms).
+		if ( ( time() - $ts ) > HOUR_IN_SECONDS ) {
+			wp_send_json_error( 'Formular abgelaufen. Bitte laden Sie die Seite neu.' );
 		}
 	}
 

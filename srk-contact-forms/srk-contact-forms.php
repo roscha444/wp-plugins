@@ -44,10 +44,13 @@ require_once SRK_CF_PATH . 'includes/class-srk-form-handler.php';
 require_once SRK_CF_PATH . 'includes/class-srk-form-registry.php';
 require_once SRK_CF_PATH . 'includes/class-srk-form-admin.php';
 
-// Seed default forms on first activation.
+// Seed default forms and options on first activation.
 register_activation_hook( __FILE__, function () {
 	if ( false === get_option( 'srk_cf_forms' ) ) {
 		update_option( 'srk_cf_forms', SRK_Form_Registry::default_forms() );
+	}
+	if ( false === get_option( 'srk_cf_options' ) ) {
+		update_option( 'srk_cf_options', [ 'enable_antispam' => true ] );
 	}
 } );
 

@@ -38,12 +38,14 @@ class SRK_SMTP_Settings {
 	}
 
 	public function add_menu(): void {
-		add_options_page(
+		add_menu_page(
 			'SRK SMTP Mailer',
 			'SRK SMTP',
 			'manage_options',
 			'srk-smtp',
-			[ $this, 'render_page' ]
+			[ $this, 'render_page' ],
+			'dashicons-email-alt',
+			82
 		);
 	}
 

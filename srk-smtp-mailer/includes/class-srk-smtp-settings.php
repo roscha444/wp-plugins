@@ -69,6 +69,8 @@ class SRK_SMTP_Settings {
 			'from_name'       => sanitize_text_field( $input['from_name'] ?? '' ),
 			'allow_self_signed' => ! empty( $input['allow_self_signed'] ),
 			'enable_log'        => ! empty( $input['enable_log'] ),
+			'rate_limit_hour'   => absint( $input['rate_limit_hour'] ?? 30 ),
+			'rate_limit_day'    => absint( $input['rate_limit_day'] ?? 100 ),
 		];
 	}
 
@@ -137,6 +139,16 @@ class SRK_SMTP_Settings {
 							</label>
 							<p class="description">Protokolliert alle gesendeten und fehlgeschlagenen E-Mails.</p>
 						</td>
+					</tr>
+					<tr>
+						<th><label for="srk_rate_limit_hour">Max E-Mails pro Stunde</label></th>
+						<td><input type="number" id="srk_rate_limit_hour" name="<?php echo esc_attr( $this->option_key ); ?>[rate_limit_hour]" value="<?php echo esc_attr( $opts['rate_limit_hour'] ?? 30 ); ?>" class="small-text" min="0">
+						<p class="description">Maximale Anzahl E-Mails pro Stunde. 0 = unbegrenzt. Erfordert aktiviertes E-Mail-Log.</p></td>
+					</tr>
+					<tr>
+						<th><label for="srk_rate_limit_day">Max E-Mails pro Tag</label></th>
+						<td><input type="number" id="srk_rate_limit_day" name="<?php echo esc_attr( $this->option_key ); ?>[rate_limit_day]" value="<?php echo esc_attr( $opts['rate_limit_day'] ?? 100 ); ?>" class="small-text" min="0">
+						<p class="description">Maximale Anzahl E-Mails pro Tag (24h). 0 = unbegrenzt. Erfordert aktiviertes E-Mail-Log.</p></td>
 					</tr>
 				</table>
 

@@ -69,6 +69,7 @@ final class SRK_Migration {
 	public function __construct() {
 		add_action( 'admin_menu', [ $this, 'admin_menu' ] );
 		add_action( 'admin_init', [ $this, 'handle_request' ] );
+		add_action( 'admin_post_srk_migration_export', [ $this, 'handle_export' ] );
 	}
 
 	/* ──────────────────────────────────────────────
@@ -114,11 +115,6 @@ final class SRK_Migration {
 			return;
 		}
 
-		if ( isset( $_POST['srk_migration_export'] ) ) {
-			check_admin_referer( 'srk_migration_export' );
-			$this->handle_export();
-		}
-
 		if ( isset( $_POST['srk_migration_import'] ) ) {
 			check_admin_referer( 'srk_migration_import' );
 			$this->handle_import();
@@ -129,7 +125,13 @@ final class SRK_Migration {
 	 *  EXPORT
 	 * ══════════════════════════════════════════════ */
 
-	private function handle_export(): void {
+	public function handle_export(): void {
+		check_admin_referer( 'srk_migration_export' );
+
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_die( 'Keine Berechtigung.' );
+		}
+
 		if ( ! class_exists( 'ZipArchive' ) ) {
 			wp_die( 'ZipArchive PHP-Extension ist nicht verfügbar.' );
 		}
@@ -563,7 +565,8 @@ final class SRK_Migration {
 		$active_plugins = get_option( 'active_plugins', [] );
 		$all_plugins    = get_plugins();
 		?>
-		<form method="post">
+		<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+			<input type="hidden" name="action" value="srk_migration_export">
 			<?php wp_nonce_field( 'srk_migration_export' ); ?>
 
 			<table class="form-table">
@@ -655,7 +658,7 @@ final class SRK_Migration {
 				</tr>
 			</table>
 
-			<?php submit_button( 'Export herunterladen', 'primary', 'srk_migration_export' ); ?>
+			<?php submit_button( 'Export herunterladen', 'primary', 'submit' ); ?>
 		</form>
 
 		<script>

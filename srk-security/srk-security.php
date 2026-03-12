@@ -2,7 +2,7 @@
 /**
  * Plugin Name: SRK Security
  * Description: WordPress-Hardening: CSP mit Nonce, Security Headers, XML-RPC, Pingbacks, User-Enumeration, Login-Schutz und mehr.
- * Version: 1.2.1
+ * Version: 1.3.0
  * Author: Robin Schumacher
  * Author URI: https://srk-hosting.de
  * Text Domain: srk-security
@@ -32,7 +32,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'SRK_SEC_VERSION', '1.2.1' );
+define( 'SRK_SEC_VERSION', '1.3.0' );
 
 // ── 1. Remove WordPress Version Disclosure ──
 remove_action( 'wp_head', 'wp_generator' );
@@ -128,6 +128,13 @@ class SRK_CSP {
 	/**
 	 * Build the full CSP header value.
 	 */
+	/**
+	 * Check if upgrade-insecure-requests is enabled.
+	 */
+	public static function upgrade_insecure(): bool {
+		return (bool) get_option( 'srk_sec_upgrade_insecure', true );
+	}
+
 	public static function build_header(): string {
 		$nonce    = self::nonce();
 		$wl       = self::whitelist();
@@ -147,6 +154,10 @@ class SRK_CSP {
 			"form-action 'self'",
 			"object-src 'none'",
 		];
+
+		if ( self::upgrade_insecure() ) {
+			$directives[] = 'upgrade-insecure-requests';
+		}
 
 		return implode( '; ', $directives );
 	}
@@ -284,6 +295,11 @@ add_action( 'admin_init', function () {
 		'default'           => '',
 		'sanitize_callback' => 'sanitize_textarea_field',
 	] );
+	register_setting( 'srk_sec_settings', 'srk_sec_upgrade_insecure', [
+		'type'              => 'boolean',
+		'default'           => true,
+		'sanitize_callback' => 'rest_sanitize_boolean',
+	] );
 } );
 
 add_action( 'admin_menu', function () {
@@ -346,6 +362,12 @@ function srk_sec_render_page(): void {
 			'description' => 'Strict CSP mit Nonce. Blockiert alle nicht-erlaubten externen Ressourcen.',
 			'hook'        => null,
 			'check'       => SRK_CSP::enabled(),
+		],
+		[
+			'title'       => 'HTTPS erzwungen',
+			'description' => 'upgrade-insecure-requests wandelt alle HTTP-Requests automatisch in HTTPS um.',
+			'hook'        => null,
+			'check'       => SRK_CSP::enabled() && SRK_CSP::upgrade_insecure(),
 		],
 	];
 
@@ -417,6 +439,19 @@ function srk_sec_render_page(): void {
 							Eine Domain pro Zeile. Wildcard-Prefix erlaubt: <code>*.example.com</code><br>
 							Diese Domains werden in <code>script-src</code>, <code>style-src</code>, <code>img-src</code>,
 							<code>font-src</code> und <code>connect-src</code> erlaubt.
+						</p>
+					</td>
+				</tr>
+				<tr>
+					<th scope="row">HTTPS erzwingen</th>
+					<td>
+						<label>
+							<input type="checkbox" name="srk_sec_upgrade_insecure" value="1" <?php checked( SRK_CSP::upgrade_insecure() ); ?>>
+							<code>upgrade-insecure-requests</code> aktivieren
+						</label>
+						<p class="description">
+							Erzwingt HTTPS für alle Ressourcen. Der Browser wandelt automatisch alle HTTP-Requests in HTTPS um.
+							Auf Entwicklungsumgebungen ohne SSL deaktivieren.
 						</p>
 					</td>
 				</tr>

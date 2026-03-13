@@ -1,13 +1,16 @@
 # SRK SEO
 
-SEO-Titel und Meta-Beschreibungen pro Seite verwalten.
+SEO-Titel, Meta-Beschreibungen und Open Graph Tags pro Seite verwalten.
 
 ## Features
 
-- Admin-Seite unter **SRK SEO** im WordPress-Menü
-- SEO-Titel und Meta-Beschreibung pro Seite setzen
-- Automatische Ausgabe von `<title>` und `<meta name="description">` im Frontend
-- Standard-Werte werden bei Aktivierung importiert
+- **Übersicht**: Alle Seiten mit SEO-Status auf einen Blick
+- **Einzelbearbeitung**: Pro Seite SEO-Titel, Beschreibung, Canonical, Robots, OG-Tags setzen
+- **Google-Vorschau**: Live-Preview beim Bearbeiten
+- **Zeichenzähler**: Warnung bei zu langen Titeln (>60) und Beschreibungen (>160)
+- **noindex**: Seiten wie Impressum/Datenschutz aus Suchmaschinen ausschließen
+- **Open Graph**: Titel, Beschreibung und Bild für Social Media
+- **Focus Keyword**: Internes Tracking des Hauptsuchbegriffs
 
 ## Installation
 

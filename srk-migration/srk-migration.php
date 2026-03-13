@@ -36,7 +36,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 final class SRK_Migration {
 
-	const VERSION = '1.3.0';
+	const VERSION = '1.4.0';
 	const SLUG    = 'srk-migration';
 
 	/** Directories / files to skip when archiving themes and plugins. */
@@ -325,10 +325,58 @@ final class SRK_Migration {
 				$entry['is_posts_page'] = true;
 			}
 
+			// Export SRK SEO meta fields.
+			$seo_meta = $this->export_seo_meta( $p->ID );
+			if ( $seo_meta ) {
+				$entry['seo'] = $seo_meta;
+			}
+
 			$export[] = $entry;
 		}
 
 		return $export;
+	}
+
+	/** SRK SEO meta keys to export/import with pages. */
+	private array $seo_meta_keys = [
+		'_srk_seo_title',
+		'_srk_seo_description',
+		'_srk_seo_canonical',
+		'_srk_seo_robots',
+		'_srk_seo_focus_keyword',
+		'_srk_seo_og_title',
+		'_srk_seo_og_description',
+		'_srk_seo_og_image',
+	];
+
+	/**
+	 * Export SRK SEO meta for a given post.
+	 */
+	private function export_seo_meta( int $post_id ): array {
+		$meta = [];
+		foreach ( $this->seo_meta_keys as $key ) {
+			$value = get_post_meta( $post_id, $key, true );
+			if ( $value !== '' && $value !== false ) {
+				$meta[ $key ] = $value;
+			}
+		}
+		return $meta;
+	}
+
+	/**
+	 * Import SRK SEO meta for a given post.
+	 */
+	private function import_seo_meta( int $post_id, array $seo ): void {
+		// Clear existing SEO meta first.
+		foreach ( $this->seo_meta_keys as $key ) {
+			delete_post_meta( $post_id, $key );
+		}
+		// Set imported values.
+		foreach ( $seo as $key => $value ) {
+			if ( in_array( $key, $this->seo_meta_keys, true ) && $value !== '' ) {
+				update_post_meta( $post_id, $key, sanitize_text_field( $value ) );
+			}
+		}
 	}
 
 	/**
@@ -627,6 +675,13 @@ final class SRK_Migration {
 					$slug_to_id[ $page['slug'] ] = $id;
 				}
 			}
+
+			// Import SEO meta if present.
+			$page_id = $slug_to_id[ $page['slug'] ] ?? 0;
+			if ( $page_id && ! empty( $page['seo'] ) ) {
+				$this->import_seo_meta( $page_id, $page['seo'] );
+			}
+
 			$count++;
 		}
 

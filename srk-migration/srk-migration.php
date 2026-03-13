@@ -2,7 +2,7 @@
 /**
  * Plugin Name: SRK Migration
  * Description: Export/Import von Themes, Plugins, Seiteninhalten und Einstellungen zwischen WordPress-Instanzen.
- * Version: 1.2.0
+ * Version: 1.3.0
  * Author: Robin Schumacher
  * Author URI: https://srk-hosting.de
  * Text Domain: srk-migration
@@ -36,7 +36,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 final class SRK_Migration {
 
-	const VERSION = '1.2.0';
+	const VERSION = '1.3.0';
 	const SLUG    = 'srk-migration';
 
 	/** Directories / files to skip when archiving themes and plugins. */
@@ -76,8 +76,6 @@ final class SRK_Migration {
 		'blogname',
 		'blogdescription',
 		'show_on_front',
-		'page_on_front',
-		'page_for_posts',
 		'permalink_structure',
 	];
 
@@ -92,61 +90,9 @@ final class SRK_Migration {
 	/** Transient key for import results. */
 	private const RESULT_TRANSIENT = 'srk_migration_result';
 
-	/** Directory name for exports inside uploads. */
-	private const EXPORT_DIR = 'srk-migration-exports';
-
 	public function __construct() {
 		add_action( 'admin_menu', [ $this, 'admin_menu' ] );
 		add_action( 'admin_init', [ $this, 'handle_request' ] );
-		add_action( 'wp_ajax_srk_migration_download', [ $this, 'ajax_download' ] );
-		add_action( 'srk_migration_cleanup', [ $this, 'cleanup_exports' ] );
-
-		// Schedule cleanup cron if not exists.
-		if ( ! wp_next_scheduled( 'srk_migration_cleanup' ) ) {
-			wp_schedule_event( time(), 'srk_every_10_min', 'srk_migration_cleanup' );
-		}
-
-		add_filter( 'cron_schedules', [ $this, 'add_cron_schedule' ] );
-	}
-
-	public function add_cron_schedule( array $schedules ): array {
-		$schedules['srk_every_10_min'] = [
-			'interval' => 600,
-			'display'  => 'Alle 10 Minuten',
-		];
-		return $schedules;
-	}
-
-	/**
-	 * Delete export ZIPs older than 10 minutes.
-	 */
-	public function cleanup_exports(): void {
-		$dir = $this->get_export_dir();
-		if ( ! is_dir( $dir ) ) {
-			return;
-		}
-		foreach ( glob( $dir . '/*.zip' ) as $file ) {
-			if ( filemtime( $file ) < time() - 600 ) {
-				unlink( $file );
-			}
-		}
-	}
-
-	/**
-	 * Get the protected export directory path, creating it if needed.
-	 */
-	private function get_export_dir(): string {
-		$upload_dir = wp_upload_dir();
-		$dir        = $upload_dir['basedir'] . '/' . self::EXPORT_DIR;
-
-		if ( ! is_dir( $dir ) ) {
-			wp_mkdir_p( $dir );
-			// Block direct access.
-			file_put_contents( $dir . '/.htaccess', "Deny from all\n" );
-			file_put_contents( $dir . '/index.php', "<?php // Silence.\n" );
-		}
-
-		return $dir;
 	}
 
 	/* ──────────────────────────────────────────────
@@ -201,58 +147,6 @@ final class SRK_Migration {
 			check_admin_referer( 'srk_migration_import' );
 			$this->handle_import();
 		}
-
-		if ( isset( $_POST['srk_migration_delete'] ) ) {
-			check_admin_referer( 'srk_migration_delete' );
-			$this->delete_export( sanitize_file_name( $_POST['srk_migration_delete'] ) );
-		}
-	}
-
-	/**
-	 * AJAX handler — streams ZIP file as download via admin-ajax.php.
-	 */
-	public function ajax_download(): void {
-		check_ajax_referer( 'srk_migration_download', '_wpnonce' );
-
-		if ( ! current_user_can( 'manage_options' ) ) {
-			wp_die( 'Keine Berechtigung.', 403 );
-		}
-
-		$filename = isset( $_GET['file'] ) ? sanitize_file_name( $_GET['file'] ) : '';
-		$file     = $this->get_export_dir() . '/' . $filename;
-
-		if ( ! $filename || ! file_exists( $file ) ) {
-			wp_die( 'Export-Datei nicht gefunden.', 404 );
-		}
-
-		$size = filesize( $file );
-
-		// Kill every output buffer WordPress/Studio may have opened.
-		while ( ob_get_level() ) {
-			ob_end_clean();
-		}
-
-		nocache_headers();
-		// application/octet-stream prevents Safari from auto-extracting the ZIP.
-		header( 'Content-Type: application/octet-stream' );
-		header( 'Content-Disposition: attachment; filename="' . $filename . '"' );
-		header( 'Content-Length: ' . $size );
-		header( 'X-Content-Type-Options: nosniff' );
-
-		readfile( $file );
-		exit;
-	}
-
-	/**
-	 * Delete a stored export ZIP.
-	 */
-	private function delete_export( string $filename ): void {
-		$file = $this->get_export_dir() . '/' . $filename;
-		if ( file_exists( $file ) ) {
-			unlink( $file );
-		}
-		wp_safe_redirect( admin_url( 'admin.php?page=' . self::SLUG . '&deleted=1' ) );
-		exit;
 	}
 
 	/* ══════════════════════════════════════════════
@@ -336,12 +230,22 @@ final class SRK_Migration {
 		$zip->addFromString( 'manifest.json', wp_json_encode( $manifest, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT ) );
 		$zip->close();
 
-		// Move to protected export directory.
+		// Stream ZIP directly as download — never stored in a web-accessible location.
 		$filename = 'srk-migration-' . gmdate( 'Y-m-d-His' ) . '.zip';
-		$dest     = $this->get_export_dir() . '/' . $filename;
-		rename( $tmp_file, $dest );
+		$size     = filesize( $tmp_file );
 
-		wp_safe_redirect( admin_url( 'admin.php?page=' . self::SLUG . '&exported=1' ) );
+		while ( ob_get_level() ) {
+			ob_end_clean();
+		}
+
+		nocache_headers();
+		header( 'Content-Type: application/octet-stream' );
+		header( 'Content-Disposition: attachment; filename="' . $filename . '"' );
+		header( 'Content-Length: ' . $size );
+		header( 'X-Content-Type-Options: nosniff' );
+
+		readfile( $tmp_file );
+		unlink( $tmp_file );
 		exit;
 	}
 
@@ -390,6 +294,7 @@ final class SRK_Migration {
 
 	/**
 	 * Export all published pages with hierarchy info.
+	 * Includes front page and blog page slugs for ID-independent import.
 	 */
 	private function export_pages(): array {
 		$pages  = get_pages( [ 'post_status' => 'publish', 'sort_column' => 'menu_order' ] );
@@ -402,7 +307,7 @@ final class SRK_Migration {
 		}
 
 		foreach ( $pages as $p ) {
-			$export[] = [
+			$entry = [
 				'slug'        => $p->post_name,
 				'title'       => $p->post_title,
 				'content'     => $p->post_content,
@@ -411,6 +316,16 @@ final class SRK_Migration {
 				'template'    => get_page_template_slug( $p->ID ),
 				'parent_slug' => $p->post_parent ? ( $id_to_slug[ $p->post_parent ] ?? '' ) : '',
 			];
+
+			// Mark front page and blog page by slug (not by ID).
+			if ( (int) get_option( 'page_on_front' ) === $p->ID ) {
+				$entry['is_front_page'] = true;
+			}
+			if ( (int) get_option( 'page_for_posts' ) === $p->ID ) {
+				$entry['is_posts_page'] = true;
+			}
+
+			$export[] = $entry;
 		}
 
 		return $export;
@@ -476,12 +391,13 @@ final class SRK_Migration {
 	/**
 	 * Export options matching configured prefixes + core options.
 	 * Sensitive options (passwords, secrets, tokens) are excluded.
+	 * page_on_front and page_for_posts are handled via page slugs, not IDs.
 	 */
 	private function export_options(): array {
 		global $wpdb;
 		$options = [];
 
-		// Core options.
+		// Core options (page_on_front/page_for_posts handled via page export).
 		foreach ( $this->core_options as $key ) {
 			if ( in_array( $key, $this->sensitive_options, true ) ) {
 				continue;
@@ -547,6 +463,7 @@ final class SRK_Migration {
 		$zip      = new ZipArchive();
 
 		if ( $zip->open( $tmp_file ) !== true ) {
+			@unlink( $tmp_file );
 			$this->set_result( 'error', 'ZIP-Datei konnte nicht geöffnet werden.' );
 			return;
 		}
@@ -554,6 +471,7 @@ final class SRK_Migration {
 		$manifest_json = $zip->getFromName( 'manifest.json' );
 		if ( ! $manifest_json ) {
 			$zip->close();
+			@unlink( $tmp_file );
 			$this->set_result( 'error', 'Kein manifest.json in der ZIP-Datei gefunden.' );
 			return;
 		}
@@ -561,6 +479,7 @@ final class SRK_Migration {
 		$manifest = json_decode( $manifest_json, true );
 		if ( ! $manifest || ! isset( $manifest['includes'] ) ) {
 			$zip->close();
+			@unlink( $tmp_file );
 			$this->set_result( 'error', 'manifest.json ist ungültig.' );
 			return;
 		}
@@ -630,6 +549,9 @@ final class SRK_Migration {
 
 		$zip->close();
 
+		// Delete uploaded ZIP immediately — must never remain on disk.
+		@unlink( $tmp_file );
+
 		// Permalinks aktualisieren.
 		flush_rewrite_rules();
 
@@ -673,7 +595,7 @@ final class SRK_Migration {
 	}
 
 	/**
-	 * Import pages, handling parent-child relationships.
+	 * Import pages, handling parent-child relationships, front page and blog page.
 	 */
 	private function import_pages( array $pages ): int {
 		$count      = 0;
@@ -722,10 +644,15 @@ final class SRK_Migration {
 			}
 		}
 
-		// Set frontpage if 'startseite' exists.
-		if ( isset( $slug_to_id['startseite'] ) ) {
-			update_option( 'show_on_front', 'page' );
-			update_option( 'page_on_front', $slug_to_id['startseite'] );
+		// Set front page and blog page from export markers.
+		foreach ( $pages as $page ) {
+			if ( ! empty( $page['is_front_page'] ) && isset( $slug_to_id[ $page['slug'] ] ) ) {
+				update_option( 'show_on_front', 'page' );
+				update_option( 'page_on_front', $slug_to_id[ $page['slug'] ] );
+			}
+			if ( ! empty( $page['is_posts_page'] ) && isset( $slug_to_id[ $page['slug'] ] ) ) {
+				update_option( 'page_for_posts', $slug_to_id[ $page['slug'] ] );
+			}
 		}
 
 		return $count;
@@ -838,87 +765,13 @@ final class SRK_Migration {
 	}
 
 	/* ══════════════════════════════════════════════
-	 *  ADMIN PAGE
+	 *  ADMIN PAGES
 	 * ══════════════════════════════════════════════ */
 
-	/**
-	 * List existing export ZIPs in the protected directory.
-	 */
-	private function get_existing_exports(): array {
-		$dir   = $this->get_export_dir();
-		$files = glob( $dir . '/*.zip' );
-		if ( ! $files ) {
-			return [];
-		}
-		$exports = [];
-		foreach ( $files as $file ) {
-			$exports[] = [
-				'name' => basename( $file ),
-				'size' => filesize( $file ),
-				'time' => filemtime( $file ),
-			];
-		}
-		// Newest first.
-		usort( $exports, fn( $a, $b ) => $b['time'] <=> $a['time'] );
-		return $exports;
-	}
-
 	public function render_export_page(): void {
-		$exports = $this->get_existing_exports();
-		$deleted = isset( $_GET['deleted'] );
 		?>
 		<div class="wrap">
 			<h1>SRK Migration — Export</h1>
-
-			<?php if ( $deleted ) : ?>
-				<div class="notice notice-success is-dismissible"><p>Export gelöscht.</p></div>
-			<?php endif; ?>
-
-			<?php if ( $exports ) : ?>
-				<h2>Vorhandene Exports</h2>
-				<table class="widefat striped" style="max-width: 700px;">
-					<thead>
-						<tr>
-							<th>Datei</th>
-							<th>Größe</th>
-							<th>Erstellt</th>
-							<th>Aktionen</th>
-						</tr>
-					</thead>
-					<tbody>
-						<?php foreach ( $exports as $export ) :
-							$dl_url = wp_nonce_url(
-								admin_url( 'admin-ajax.php?action=srk_migration_download&file=' . urlencode( $export['name'] ) ),
-								'srk_migration_download'
-							);
-							$age = time() - $export['time'];
-							$expires = max( 0, 600 - $age );
-						?>
-						<tr>
-							<td><code><?php echo esc_html( $export['name'] ); ?></code></td>
-							<td><?php echo esc_html( size_format( $export['size'] ) ); ?></td>
-							<td>
-								<?php echo esc_html( date_i18n( 'd.m.Y H:i:s', $export['time'] ) ); ?>
-								<br><small>Auto-Löschung in <?php echo esc_html( gmdate( 'i:s', $expires ) ); ?> Min.</small>
-							</td>
-							<td>
-								<a href="<?php echo esc_url( $dl_url ); ?>" class="button button-primary button-small">Herunterladen</a>
-								<form method="post" style="display: inline;">
-									<?php wp_nonce_field( 'srk_migration_delete' ); ?>
-									<button type="submit" name="srk_migration_delete"
-											value="<?php echo esc_attr( $export['name'] ); ?>"
-											class="button button-small"
-											onclick="return confirm('Export wirklich löschen?');">Löschen</button>
-								</form>
-							</td>
-						</tr>
-						<?php endforeach; ?>
-					</tbody>
-				</table>
-				<br>
-			<?php endif; ?>
-
-			<h2>Neuen Export erstellen</h2>
 			<p>Erstelle ein Migrations-Paket mit Theme, Plugins, Seiteninhalten und Einstellungen.</p>
 			<?php
 		$active_theme   = wp_get_theme();
@@ -990,14 +843,22 @@ final class SRK_Migration {
 									$parent     = $parent_obj ? $parent_obj->post_parent : 0;
 								}
 								$indent = str_repeat( '— ', $depth );
+								$flags  = [];
+								if ( (int) get_option( 'page_on_front' ) === $p->ID ) {
+									$flags[] = 'Startseite';
+								}
+								if ( (int) get_option( 'page_for_posts' ) === $p->ID ) {
+									$flags[] = 'Blogseite';
+								}
+								$flag_str = $flags ? ' — ' . implode( ', ', $flags ) : '';
 							?>
 								<label style="display: block; margin-bottom: 2px;">
 									<?php echo esc_html( $indent . $p->post_title ); ?>
-									<span class="description">(<?php echo esc_html( '/' . $p->post_name . '/' ); ?>)</span>
+									<span class="description">(<?php echo esc_html( '/' . $p->post_name . '/' . $flag_str ); ?>)</span>
 								</label>
 							<?php endforeach; ?>
 						</fieldset>
-						<p class="description"><?php echo count( $pages ); ?> Seiten</p>
+						<p class="description"><?php echo count( $pages ); ?> Seiten (inkl. Startseiten-Zuweisung)</p>
 						<?php endif; ?>
 					</td>
 				</tr>
@@ -1085,8 +946,10 @@ final class SRK_Migration {
 			<ul style="list-style: disc; margin-left: 20px;">
 				<li>Vorhandene Themes und Plugins werden überschrieben.</li>
 				<li>Seiten werden anhand des Slugs abgeglichen (Update oder Neuanlage).</li>
+				<li>Startseite und Blogseite werden automatisch zugewiesen.</li>
 				<li>Navigationsmenüs werden neu erstellt und Positionen zugewiesen.</li>
 				<li>Einstellungen werden direkt übernommen.</li>
+				<li>Die hochgeladene ZIP-Datei wird nach dem Import sofort gelöscht.</li>
 				<li>Dieses Plugin muss auf beiden Instanzen installiert sein.</li>
 			</ul>
 		</div>
@@ -1096,8 +959,3 @@ final class SRK_Migration {
 }
 
 new SRK_Migration();
-
-// Clean up cron on deactivation.
-register_deactivation_hook( __FILE__, function () {
-	wp_clear_scheduled_hook( 'srk_migration_cleanup' );
-} );

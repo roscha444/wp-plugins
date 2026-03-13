@@ -43,7 +43,7 @@ final class SRK_Migration {
 	private array $exclude = [ '.git', '.DS_Store', 'node_modules', '.gitignore', 'deploy' ];
 
 	/** Option prefixes to export automatically. */
-	private array $option_prefixes = [ 'srk_', 'profisan_' ];
+	private array $option_prefixes = [ 'srk_' ];
 
 	/** Individual core options to always export. */
 	private array $core_options = [

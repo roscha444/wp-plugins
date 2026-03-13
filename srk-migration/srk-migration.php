@@ -2,7 +2,7 @@
 /**
  * Plugin Name: SRK Migration
  * Description: Export/Import von Themes, Plugins, Seiteninhalten und Einstellungen zwischen WordPress-Instanzen.
- * Version: 1.0.0
+ * Version: 1.1.0
  * Author: Robin Schumacher
  * Author URI: https://srk-hosting.de
  * Text Domain: srk-migration
@@ -36,7 +36,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 final class SRK_Migration {
 
-	const VERSION = '1.0.0';
+	const VERSION = '1.1.0';
 	const SLUG    = 'srk-migration';
 
 	/** Directories / files to skip when archiving themes and plugins. */
@@ -241,6 +241,7 @@ final class SRK_Migration {
 		$include_theme   = ! empty( $_POST['export_theme'] );
 		$include_plugins = ! empty( $_POST['export_plugins'] );
 		$include_pages   = ! empty( $_POST['export_pages'] );
+		$include_menus   = ! empty( $_POST['export_menus'] );
 		$include_options = ! empty( $_POST['export_options'] );
 
 		$selected_plugins = isset( $_POST['export_plugin_list'] ) && is_array( $_POST['export_plugin_list'] )
@@ -290,6 +291,13 @@ final class SRK_Migration {
 			$pages_data = $this->export_pages();
 			$zip->addFromString( 'data/pages.json', wp_json_encode( $pages_data, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT ) );
 			$manifest['includes']['pages'] = count( $pages_data );
+		}
+
+		// ── Navigationsmenüs ──
+		if ( $include_menus ) {
+			$menus_data = $this->export_menus();
+			$zip->addFromString( 'data/menus.json', wp_json_encode( $menus_data, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT ) );
+			$manifest['includes']['menus'] = count( $menus_data['menus'] ?? [] );
 		}
 
 		// ── Einstellungen ──
@@ -380,6 +388,63 @@ final class SRK_Migration {
 		}
 
 		return $export;
+	}
+
+	/**
+	 * Export all registered navigation menus with their items and location assignments.
+	 */
+	private function export_menus(): array {
+		$nav_menus  = wp_get_nav_menus();
+		$locations  = get_nav_menu_locations();
+		$loc_lookup = array_flip( $locations ); // term_id => location_slug
+
+		$menus = [];
+		foreach ( $nav_menus as $menu ) {
+			$items     = wp_get_nav_menu_items( $menu->term_id, [ 'update_post_term_cache' => false ] );
+			$exported  = [];
+			$id_to_idx = []; // menu_item_id => index for parent resolution
+
+			if ( $items ) {
+				foreach ( $items as $i => $item ) {
+					$id_to_idx[ $item->ID ] = $i;
+
+					$entry = [
+						'title'      => $item->title,
+						'type'       => $item->type,        // 'post_type', 'custom', 'taxonomy'
+						'object'     => $item->object,      // 'page', 'post', 'category', 'custom'
+						'url'        => $item->url,
+						'target'     => $item->target,
+						'classes'    => array_filter( $item->classes ),
+						'menu_order' => $item->menu_order,
+						'parent_idx' => null,
+					];
+
+					// For page/post links store the slug for ID-independent import.
+					if ( 'post_type' === $item->type && $item->object_id ) {
+						$linked = get_post( $item->object_id );
+						if ( $linked ) {
+							$entry['object_slug'] = $linked->post_name;
+						}
+					}
+
+					// Resolve parent to index (set in second pass).
+					if ( (int) $item->menu_item_parent ) {
+						$entry['parent_idx'] = $id_to_idx[ (int) $item->menu_item_parent ] ?? null;
+					}
+
+					$exported[] = $entry;
+				}
+			}
+
+			$menus[] = [
+				'name'      => $menu->name,
+				'slug'      => $menu->slug,
+				'locations' => isset( $loc_lookup[ $menu->term_id ] ) ? [ $loc_lookup[ $menu->term_id ] ] : [],
+				'items'     => $exported,
+			];
+		}
+
+		return [ 'menus' => $menus ];
 	}
 
 	/**
@@ -515,6 +580,16 @@ final class SRK_Migration {
 			}
 		}
 
+		// ── Navigationsmenüs importieren ──
+		if ( ! empty( $includes['menus'] ) ) {
+			$menus_json = $zip->getFromName( 'data/menus.json' );
+			if ( $menus_json ) {
+				$menus_data = json_decode( $menus_json, true );
+				$menu_count = $this->import_menus( $menus_data );
+				$results[]  = "{$menu_count} Navigationsmenü(s) importiert.";
+			}
+		}
+
 		// ── Einstellungen importieren ──
 		if ( ! empty( $includes['options'] ) ) {
 			$options_json = $zip->getFromName( 'data/options.json' );
@@ -625,6 +700,95 @@ final class SRK_Migration {
 		if ( isset( $slug_to_id['startseite'] ) ) {
 			update_option( 'show_on_front', 'page' );
 			update_option( 'page_on_front', $slug_to_id['startseite'] );
+		}
+
+		return $count;
+	}
+
+	/**
+	 * Import navigation menus, recreating items and assigning locations.
+	 */
+	private function import_menus( array $data ): int {
+		$menus = $data['menus'] ?? [];
+		$count = 0;
+
+		// Build page slug → ID lookup for resolving post_type links.
+		$all_pages   = get_pages( [ 'post_status' => 'publish' ] );
+		$slug_to_id  = [];
+		foreach ( $all_pages as $p ) {
+			$slug_to_id[ $p->post_name ] = $p->ID;
+		}
+
+		$location_map = [];
+
+		foreach ( $menus as $menu ) {
+			// Delete existing menu with same slug to avoid duplicates.
+			$existing = wp_get_nav_menu_object( $menu['slug'] );
+			if ( $existing ) {
+				wp_delete_nav_menu( $existing->term_id );
+			}
+
+			$menu_id = wp_create_nav_menu( $menu['name'] );
+			if ( is_wp_error( $menu_id ) ) {
+				continue;
+			}
+
+			// Track item index → new menu_item_id for parent resolution.
+			$idx_to_item_id = [];
+
+			foreach ( $menu['items'] as $idx => $item ) {
+				$args = [
+					'menu-item-title'    => $item['title'],
+					'menu-item-position' => $item['menu_order'],
+					'menu-item-target'   => $item['target'] ?? '',
+					'menu-item-classes'  => implode( ' ', $item['classes'] ?? [] ),
+					'menu-item-status'   => 'publish',
+				];
+
+				// Resolve parent.
+				if ( $item['parent_idx'] !== null && isset( $idx_to_item_id[ $item['parent_idx'] ] ) ) {
+					$args['menu-item-parent-id'] = $idx_to_item_id[ $item['parent_idx'] ];
+				}
+
+				if ( 'post_type' === $item['type'] && ! empty( $item['object_slug'] ) ) {
+					// Link to page/post by slug.
+					$object_id = $slug_to_id[ $item['object_slug'] ] ?? 0;
+					if ( $object_id ) {
+						$args['menu-item-type']      = 'post_type';
+						$args['menu-item-object']    = $item['object'];
+						$args['menu-item-object-id'] = $object_id;
+					} else {
+						// Fallback: custom link with original URL.
+						$args['menu-item-type'] = 'custom';
+						$args['menu-item-url']  = $item['url'];
+					}
+				} elseif ( 'custom' === $item['type'] ) {
+					$args['menu-item-type'] = 'custom';
+					$args['menu-item-url']  = $item['url'];
+				} else {
+					// Taxonomy or other — import as custom link.
+					$args['menu-item-type'] = 'custom';
+					$args['menu-item-url']  = $item['url'];
+				}
+
+				$item_id = wp_update_nav_menu_item( $menu_id, 0, $args );
+				if ( ! is_wp_error( $item_id ) ) {
+					$idx_to_item_id[ $idx ] = $item_id;
+				}
+			}
+
+			// Map locations.
+			foreach ( $menu['locations'] as $location ) {
+				$location_map[ $location ] = $menu_id;
+			}
+
+			$count++;
+		}
+
+		// Assign menu locations.
+		if ( $location_map ) {
+			$current = get_nav_menu_locations();
+			set_theme_mod( 'nav_menu_locations', array_merge( $current, $location_map ) );
 		}
 
 		return $count;
@@ -812,6 +976,20 @@ final class SRK_Migration {
 					</td>
 				</tr>
 
+				<!-- Navigationsmenüs -->
+				<tr>
+					<th scope="row">Navigationsmenüs</th>
+					<td>
+						<label>
+							<input type="checkbox" name="export_menus" value="1" checked>
+							Navigationsmenüs exportieren
+						</label>
+						<p class="description">
+							Alle registrierten Menüs mit Menüpunkten und Zuweisungen zu Positionen.
+						</p>
+					</td>
+				</tr>
+
 				<!-- Einstellungen -->
 				<tr>
 					<th scope="row">Einstellungen</th>
@@ -881,6 +1059,7 @@ final class SRK_Migration {
 			<ul style="list-style: disc; margin-left: 20px;">
 				<li>Vorhandene Themes und Plugins werden überschrieben.</li>
 				<li>Seiten werden anhand des Slugs abgeglichen (Update oder Neuanlage).</li>
+				<li>Navigationsmenüs werden neu erstellt und Positionen zugewiesen.</li>
 				<li>Einstellungen werden direkt übernommen.</li>
 				<li>Dieses Plugin muss auf beiden Instanzen installiert sein.</li>
 			</ul>

@@ -2,7 +2,7 @@
 /**
  * Plugin Name: SRK Migration
  * Description: Export/Import von Themes, Plugins, Seiteninhalten und Einstellungen zwischen WordPress-Instanzen.
- * Version: 1.1.0
+ * Version: 1.2.0
  * Author: Robin Schumacher
  * Author URI: https://srk-hosting.de
  * Text Domain: srk-migration
@@ -36,14 +36,40 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 final class SRK_Migration {
 
-	const VERSION = '1.1.0';
+	const VERSION = '1.2.0';
 	const SLUG    = 'srk-migration';
 
 	/** Directories / files to skip when archiving themes and plugins. */
 	private array $exclude = [ '.git', '.DS_Store', 'node_modules', '.gitignore', 'deploy' ];
 
-	/** Option prefixes to export automatically. */
-	private array $option_prefixes = [ 'srk_' ];
+	/**
+	 * Derive option prefixes dynamically from the active theme and plugins.
+	 * E.g. srk-hosting + srk-security → ['srk_'], profisan-theme → ['profisan_'].
+	 */
+	private function get_option_prefixes(): array {
+		$prefixes = [];
+
+		// From active theme slug.
+		$theme_part = explode( '-', get_stylesheet() )[0] ?? '';
+		if ( $theme_part ) {
+			$prefixes[] = $theme_part . '_';
+		}
+
+		// From active plugin directory slugs.
+		$active_plugins = get_option( 'active_plugins', [] );
+		foreach ( $active_plugins as $plugin_file ) {
+			$slug = dirname( $plugin_file );
+			if ( '.' === $slug ) {
+				continue;
+			}
+			$part = explode( '-', $slug )[0] ?? '';
+			if ( $part ) {
+				$prefixes[] = $part . '_';
+			}
+		}
+
+		return array_unique( $prefixes );
+	}
 
 	/** Individual core options to always export. */
 	private array $core_options = [
@@ -463,8 +489,8 @@ final class SRK_Migration {
 			$options[ $key ] = get_option( $key );
 		}
 
-		// Prefixed options.
-		foreach ( $this->option_prefixes as $prefix ) {
+		// Prefixed options (auto-detected from active theme + plugins).
+		foreach ( $this->get_option_prefixes() as $prefix ) {
 			$rows = $wpdb->get_results(
 				$wpdb->prepare(
 					"SELECT option_name, option_value FROM {$wpdb->options} WHERE option_name LIKE %s AND option_name NOT LIKE %s",
@@ -999,7 +1025,7 @@ final class SRK_Migration {
 							Plugin- und Theme-Einstellungen exportieren
 						</label>
 						<p class="description">
-							Blogname, Frontpage, Permalinks sowie alle <code>srk_*</code> und <code>profisan_*</code> Optionen.
+							Blogname, Frontpage, Permalinks sowie alle Plugin-/Theme-Optionen dieser Installation.
 						</p>
 					</td>
 				</tr>

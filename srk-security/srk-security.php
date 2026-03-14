@@ -2,7 +2,7 @@
 /**
  * Plugin Name: SRK Security
  * Description: WordPress-Hardening: CSP mit Nonce, Security Headers, XML-RPC, Pingbacks, User-Enumeration, Login-Schutz und mehr.
- * Version: 1.4.0
+ * Version: 1.5.0
  * Author: Robin Schumacher
  * Author URI: https://srk-hosting.de
  * Text Domain: srk-security
@@ -32,11 +32,26 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'SRK_SEC_VERSION', '1.4.0' );
+define( 'SRK_SEC_VERSION', '1.5.0' );
 
 // ── 1. Remove WordPress Version Disclosure ──
 remove_action( 'wp_head', 'wp_generator' );
 add_filter( 'the_generator', '__return_empty_string' );
+
+// ── 1b. Remove Emoji Scripts & Styles ──
+remove_action( 'wp_head', 'print_emoji_detection_script', 7 );
+remove_action( 'wp_print_styles', 'print_emoji_styles' );
+remove_action( 'admin_print_scripts', 'print_emoji_detection_script' );
+remove_action( 'admin_print_styles', 'print_emoji_styles' );
+add_filter( 'emoji_svg_url', '__return_false' );
+
+// ── 1c. Remove version query strings from scripts/styles ──
+add_filter( 'script_loader_src', function ( $src ) {
+	return remove_query_arg( 'ver', $src );
+}, 9999 );
+add_filter( 'style_loader_src', function ( $src ) {
+	return remove_query_arg( 'ver', $src );
+}, 9999 );
 
 // ── 2. Disable XML-RPC (Brute-Force vector) ──
 add_filter( 'xmlrpc_enabled', '__return_false' );
@@ -355,6 +370,18 @@ function srk_sec_render_page(): void {
 			'title'       => 'WordPress-Version versteckt',
 			'description' => 'Entfernt die WordPress-Versionsnummer aus dem HTML-Head und RSS-Feeds.',
 			'hook'        => 'the_generator',
+		],
+		[
+			'title'       => 'Emoji-Script deaktiviert',
+			'description' => 'Entfernt wp-emoji-release.min.js und zugehörige Styles. Verhindert Version-Leak über ?ver= Parameter.',
+			'hook'        => null,
+			'check'       => ! has_action( 'wp_head', 'print_emoji_detection_script' ),
+		],
+		[
+			'title'       => 'Version-Parameter entfernt',
+			'description' => 'Entfernt ?ver= aus allen Script- und Style-URLs. Verhindert WordPress-Versions-Leak.',
+			'hook'        => null,
+			'check'       => has_filter( 'script_loader_src' ),
 		],
 		[
 			'title'       => 'XML-RPC deaktiviert',

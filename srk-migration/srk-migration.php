@@ -2,7 +2,7 @@
 /**
  * Plugin Name: SRK Migration
  * Description: Export/Import von Themes, Plugins, Seiteninhalten und Einstellungen zwischen WordPress-Instanzen.
- * Version: 1.3.0
+ * Version: 1.5.0
  * Author: Robin Schumacher
  * Author URI: https://srk-hosting.de
  * Text Domain: srk-migration
@@ -36,7 +36,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 final class SRK_Migration {
 
-	const VERSION = '1.4.0';
+	const VERSION = '1.5.0';
 	const SLUG    = 'srk-migration';
 
 	/** Directories / files to skip when archiving themes and plugins. */
@@ -649,6 +649,9 @@ final class SRK_Migration {
 		$count      = 0;
 		$slug_to_id = [];
 
+		// Disable kses filtering to preserve raw HTML (block themes use wp:html blocks).
+		kses_remove_filters();
+
 		// First pass: create or update all pages.
 		foreach ( $pages as $page ) {
 			$existing = get_page_by_path( $page['slug'] );
@@ -709,6 +712,9 @@ final class SRK_Migration {
 				update_option( 'page_for_posts', $slug_to_id[ $page['slug'] ] );
 			}
 		}
+
+		// Re-enable kses filtering.
+		kses_init_filters();
 
 		return $count;
 	}

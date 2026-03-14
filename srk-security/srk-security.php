@@ -2,7 +2,7 @@
 /**
  * Plugin Name: SRK Security
  * Description: WordPress-Hardening: CSP mit Nonce, Security Headers, XML-RPC, Pingbacks, User-Enumeration, Login-Schutz und mehr.
- * Version: 1.6.0
+ * Version: 1.7.0
  * Author: Robin Schumacher
  * Author URI: https://srk-hosting.de
  * Text Domain: srk-security
@@ -32,7 +32,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'SRK_SEC_VERSION', '1.6.0' );
+define( 'SRK_SEC_VERSION', '1.7.0' );
 
 // ── 1. Remove WordPress Version Disclosure ──
 remove_action( 'wp_head', 'wp_generator' );
@@ -72,6 +72,15 @@ add_filter( 'wp_headers', function ( $headers ) {
 } );
 
 // ── 4. Block Author Enumeration (?author=N, POST, and author archives) ──
+// Block ?author=N early (before redirect_canonical turns it into /author/username/)
+add_action( 'parse_request', function ( $wp ) {
+	if ( ! empty( $wp->query_vars['author'] ) || ! empty( $wp->query_vars['author_name'] ) ) {
+		if ( ! is_admin() && ! is_user_logged_in() ) {
+			wp_die( 'Zugriff verweigert.', 'Verboten', [ 'response' => 403 ] );
+		}
+	}
+} );
+
 add_action( 'template_redirect', function () {
 	if ( is_admin() ) {
 		return;

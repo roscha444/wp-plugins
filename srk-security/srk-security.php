@@ -2,7 +2,7 @@
 /**
  * Plugin Name: SRK Security
  * Description: WordPress-Hardening: CSP mit Nonce, Security Headers, XML-RPC, Pingbacks, User-Enumeration, Login-Schutz und mehr.
- * Version: 1.5.0
+ * Version: 1.6.0
  * Author: Robin Schumacher
  * Author URI: https://srk-hosting.de
  * Text Domain: srk-security
@@ -32,11 +32,19 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'SRK_SEC_VERSION', '1.5.0' );
+define( 'SRK_SEC_VERSION', '1.6.0' );
 
 // ── 1. Remove WordPress Version Disclosure ──
 remove_action( 'wp_head', 'wp_generator' );
 add_filter( 'the_generator', '__return_empty_string' );
+
+// ── 1a. Delete readme.html (re-created on every WP update) ──
+add_action( 'init', function () {
+	$file = ABSPATH . 'readme.html';
+	if ( file_exists( $file ) ) {
+		@unlink( $file );
+	}
+}, 1 );
 
 // ── 1b. Remove Emoji Scripts & Styles ──
 remove_action( 'wp_head', 'print_emoji_detection_script', 7 );
@@ -370,6 +378,12 @@ function srk_sec_render_page(): void {
 			'title'       => 'WordPress-Version versteckt',
 			'description' => 'Entfernt die WordPress-Versionsnummer aus dem HTML-Head und RSS-Feeds.',
 			'hook'        => 'the_generator',
+		],
+		[
+			'title'       => 'readme.html gelöscht',
+			'description' => 'Löscht die WordPress readme.html automatisch. Wird nach jedem WP-Update neu erstellt und vom Plugin wieder entfernt.',
+			'hook'        => null,
+			'check'       => ! file_exists( ABSPATH . 'readme.html' ),
 		],
 		[
 			'title'       => 'Emoji-Script deaktiviert',
